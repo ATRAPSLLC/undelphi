@@ -653,7 +653,27 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// Deepest object/value nesting the DFM reader will follow.
+///
+/// The form stream is untrusted input from the analyzed binary, and both the
+/// `read_object` ⇄ `read_children` cycle and `read_value`'s list arm recursed
+/// with no bound — one nesting byte bought one stack frame. Real Delphi forms
+/// nest a handful of levels.
+const MAX_DFM_DEPTH: usize = 64;
+
 fn read_object<'a>(cur: &mut Cursor<'a>, version_is_1: bool) -> Option<DfmObject<'a>> {
+    read_object_at(cur, version_is_1, 0)
+}
+
+/// [`read_object`] carrying the nesting depth.
+fn read_object_at<'a>(
+    cur: &mut Cursor<'a>,
+    version_is_1: bool,
+    depth: usize,
+) -> Option<DfmObject<'a>> {
+    if depth >= MAX_DFM_DEPTH {
+        return None;
+    }
     // Optional prefix byte with high nibble == 0xF0.
     let mut flags = FilerFlags::default();
     let mut child_pos: Option<i32> = None;
@@ -693,8 +713,8 @@ fn read_object<'a>(cur: &mut Cursor<'a>, version_is_1: bool) -> Option<DfmObject
 
     let object_name = cur.read_short_string()?;
 
-    let properties = read_properties(cur)?;
-    let children = read_children(cur, version_is_1)?;
+    let properties = read_properties(cur, depth.saturating_add(1))?;
+    let children = read_children(cur, version_is_1, depth.saturating_add(1))?;
 
     Some(DfmObject {
         flavor: if version_is_1 {
@@ -712,20 +732,30 @@ fn read_object<'a>(cur: &mut Cursor<'a>, version_is_1: bool) -> Option<DfmObject
     })
 }
 
-fn read_properties<'a>(cur: &mut Cursor<'a>) -> Option<Vec<DfmProperty<'a>>> {
+fn read_properties<'a>(cur: &mut Cursor<'a>, depth: usize) -> Option<Vec<DfmProperty<'a>>> {
+    if depth >= MAX_DFM_DEPTH {
+        return None;
+    }
     let mut out = Vec::new();
     loop {
         let name = cur.read_short_string()?;
         if name.is_empty() {
             break;
         }
-        let value = read_value(cur)?;
+        let value = read_value_at(cur, depth.saturating_add(1))?;
         out.push(DfmProperty { name, value });
     }
     Some(out)
 }
 
-fn read_children<'a>(cur: &mut Cursor<'a>, version_is_1: bool) -> Option<Vec<DfmObject<'a>>> {
+fn read_children<'a>(
+    cur: &mut Cursor<'a>,
+    version_is_1: bool,
+    depth: usize,
+) -> Option<Vec<DfmObject<'a>>> {
+    if depth >= MAX_DFM_DEPTH {
+        return None;
+    }
     let mut out = Vec::new();
     loop {
         // Peek to detect the empty-class-name terminator. Because children may
@@ -742,13 +772,20 @@ fn read_children<'a>(cur: &mut Cursor<'a>, version_is_1: bool) -> Option<Vec<Dfm
             None => return None, // truncated stream
             _ => {}
         }
-        let child = read_object(cur, version_is_1)?;
+        let child = read_object_at(cur, version_is_1, depth.saturating_add(1))?;
         out.push(child);
     }
     Some(out)
 }
 
-fn read_value<'a>(cur: &mut Cursor<'a>) -> Option<DfmValue<'a>> {
+/// Reads one property value, carrying the nesting depth.
+///
+/// Every call site goes through here; the depth-free entry points are
+/// [`read_object`] and, below it, [`read_properties`].
+fn read_value_at<'a>(cur: &mut Cursor<'a>, depth: usize) -> Option<DfmValue<'a>> {
+    if depth >= MAX_DFM_DEPTH {
+        return None;
+    }
     let tag = cur.read_u8()?;
     Some(match ValueType::from_u8(tag) {
         ValueType::Null => DfmValue::Null,
@@ -801,7 +838,7 @@ fn read_value<'a>(cur: &mut Cursor<'a>) -> Option<DfmValue<'a>> {
                     cur.read_u8();
                     break;
                 }
-                items.push(read_value(cur)?);
+                items.push(read_value_at(cur, depth.saturating_add(1))?);
             }
             DfmValue::List(items)
         }
@@ -853,7 +890,7 @@ fn read_value<'a>(cur: &mut Cursor<'a>) -> Option<DfmValue<'a>> {
                         if list_tag != ValueType::List as u8 {
                             return None;
                         }
-                        items.push(read_properties(cur)?);
+                        items.push(read_properties(cur, depth.saturating_add(1))?);
                     }
                 }
             }
