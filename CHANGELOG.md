@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.2
+
+Security and ownership release.
+
+### Fixed
+
+- **Unbounded recursion in the DFM reader.** The form stream is untrusted input
+  carved out of the analyzed binary, and neither the `read_object`/`read_children`
+  cycle nor `read_value`'s list arm bounded recursion — one nesting byte bought one
+  stack frame, so a crafted DFM could exhaust the stack and abort the process.
+  Nesting is now capped at `MAX_DFM_DEPTH` (64), far above any legitimate form.
+
+### Changed
+
+- Recorded ATRAPS LLC as copyright holder and added a `NOTICE` file.
+- Dropped the deprecated `authors` field and repointed `repository` at the organisation.
+- Refreshed dependencies (`cargo update`).
+- Publishing now uses crates.io trusted publishing instead of a stored registry token.
+
 ## 0.3.1
 
 Maintenance release. Fixes the crates.io repository link and refreshes the
@@ -9,7 +28,7 @@ dependency lockfile. No API or behavior changes.
 
 - **crates.io `repository` link** pointed at `BinFlip/delphi` instead of
   `BinFlip/undelphi`, so the "Repository" link redirected to the wrong project
-  ([#1](https://github.com/BinFlip/undelphi/issues/1)).
+  ([#1](https://github.com/ATRAPSLLC/undelphi/issues/1)).
 
 ### Dependencies
 
