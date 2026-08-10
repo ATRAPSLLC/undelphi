@@ -119,7 +119,7 @@ pub fn reconstruct<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>) -> Vec<LayoutE
         }
         let size = match kind {
             LayoutKind::VmtSlot => psize,
-            LayoutKind::NamedField { managed: _, .. } | LayoutKind::ManagedOnly { .. } => {
+            LayoutKind::NamedField { .. } | LayoutKind::ManagedOnly { .. } => {
                 // Without type-size lookup we don't know the exact size of a
                 // field; conservatively treat it as pointer-sized which is
                 // the most common case for class-typed fields.
