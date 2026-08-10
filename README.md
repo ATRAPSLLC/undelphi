@@ -185,4 +185,7 @@ contemporary laptop.
   cargo run --release --example dump -- path/to/binary.exe
   ```
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+## License
+
+Copyright 2026 ATRAPS LLC. Licensed under the
+[Apache License, Version 2.0](LICENSE). See also [`NOTICE`](NOTICE).
