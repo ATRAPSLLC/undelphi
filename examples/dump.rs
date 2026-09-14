@@ -151,7 +151,7 @@ fn print_classes_full(bin: &DelphiBinary<'_>) {
     let classes = bin.classes();
     let flavor = bin.flavor();
     section_header(&format!(
-        "classes — {} found (roots={}, external-parent={}, max-depth={})",
+        "classes - {} found (roots={}, external-parent={}, max-depth={})",
         classes.len(),
         classes.root_count(),
         classes.external_parent_count(),
@@ -164,7 +164,7 @@ fn print_classes_full(bin: &DelphiBinary<'_>) {
         by_unit.entry(u).or_default().push(c);
     }
     for (unit, clist) in &by_unit {
-        println!("\n  === unit {} — {} classes ===", unit, clist.len());
+        println!("\n  === unit {} - {} classes ===", unit, clist.len());
         for c in clist {
             print_one_class(bin, c, flavor);
         }
@@ -180,7 +180,7 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
         ancestry.join(" -> ")
     };
     println!(
-        "\n  {} — size={}B, vmt=0x{:x}, ptrsize={}B  (parents: {})",
+        "\n  {} - size={}B, vmt=0x{:x}, ptrsize={}B  (parents: {})",
         class.name(),
         class.instance_size(),
         class.vmt_va(),
@@ -191,7 +191,7 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
         print_tkclass_detail(&tk);
     }
 
-    // Fields — with per-Kind resolved type detail where possible
+    // Fields - with per-Kind resolved type detail where possible
     let fields = bin.fields(class);
     if !fields.is_empty() {
         println!("    fields ({}):", fields.len());
@@ -385,7 +385,7 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
     let _ = flavor;
 }
 
-/// Compact inline rendering of a [`TypeDetail`] — `Name [Kind]` plus a
+/// Compact inline rendering of a [`TypeDetail`] - `Name [Kind]` plus a
 /// one-liner of the type-specific payload.
 fn render_detail_inline(detail: &TypeDetail<'_>) -> String {
     let h = detail.header();
@@ -526,7 +526,7 @@ fn print_tkclass_detail(tk: &TkClassInfo<'_>) {
 
 fn print_forms(bin: &DelphiBinary<'_>) {
     let forms = bin.forms();
-    section_header(&format!("forms — {} parsed from resources", forms.len()));
+    section_header(&format!("forms - {} parsed from resources", forms.len()));
     for (name, obj) in forms {
         println!(
             "\n  resource {} → {}:{}  ({} components)",
@@ -570,7 +570,7 @@ fn print_dfm_object(bin: &DelphiBinary<'_>, obj: &DfmObject<'_>, depth: usize) {
         } else if name.starts_with("On")
             && let DfmValue::String(method) = &p.value
         {
-            // Handler was referenced but couldn't be resolved — still log
+            // Handler was referenced but couldn't be resolved - still log
             // that it's an event handler for clarity.
             let _ = method;
             String::new()
@@ -648,7 +648,7 @@ fn print_enum_catalog(bin: &DelphiBinary<'_>) {
     if seen.is_empty() {
         return;
     }
-    section_header(&format!("enumeration types — {} distinct", seen.len()));
+    section_header(&format!("enumeration types - {} distinct", seen.len()));
     for (va, name) in &seen {
         let Some(info) = EnumInfo::from_va(ctx, *va, flavor) else {
             continue;
@@ -693,7 +693,7 @@ fn print_enum_catalog(bin: &DelphiBinary<'_>) {
     }
     if !rich_types.is_empty() {
         section_header(&format!(
-            "record / dynarray / interface / classref types — {} distinct",
+            "record / dynarray / interface / classref types - {} distinct",
             rich_types.len()
         ));
         for detail in rich_types.values() {
@@ -723,11 +723,11 @@ fn print_interface_xref(bin: &DelphiBinary<'_>) {
         return;
     }
     section_header(&format!(
-        "interface implementors — {} distinct interfaces",
+        "interface implementors - {} distinct interfaces",
         xref.len()
     ));
     for (iface, classes) in &xref {
-        println!("\n  {} — {} implementors", iface, classes.len());
+        println!("\n  {} - {} implementors", iface, classes.len());
         for c in classes.iter().take(20) {
             println!("    {}", c);
         }
@@ -743,7 +743,7 @@ fn print_dfm_class_xref(bin: &DelphiBinary<'_>) {
         return;
     }
     section_header(&format!(
-        "DFM class instantiations — {} distinct component classes",
+        "DFM class instantiations - {} distinct component classes",
         xref.len()
     ));
     let mut entries: Vec<_> = xref.iter().collect();
@@ -766,7 +766,7 @@ fn print_unit_summary(bin: &DelphiBinary<'_>) {
     if stats.is_empty() {
         return;
     }
-    section_header(&format!("per-unit summary — {} units", stats.len()));
+    section_header(&format!("per-unit summary - {} units", stats.len()));
     println!(
         "  {:<34} {:>7} {:>7} {:>7} {:>7} {:>7} {:>11}",
         "unit", "classes", "fields", "meths", "props", "ifaces", "inst bytes"
@@ -791,7 +791,7 @@ fn print_external_refs(bin: &DelphiBinary<'_>) {
         return;
     }
     section_header(&format!(
-        "external class references — {} classes inherit from out-of-image parents",
+        "external class references - {} classes inherit from out-of-image parents",
         ext.len()
     ));
     for e in &ext {
@@ -808,7 +808,7 @@ fn print_event_bindings(bin: &DelphiBinary<'_>) {
         return;
     }
     section_header(&format!(
-        "DFM event bindings — {} total bindings across all forms",
+        "DFM event bindings - {} total bindings across all forms",
         all.len()
     ));
     let by_method = events_by_method(bin);
@@ -844,7 +844,7 @@ fn print_blob_catalog(bin: &DelphiBinary<'_>) {
     if blobs.is_empty() {
         return;
     }
-    section_header(&format!("DFM embedded binaries — {} blobs", blobs.len()));
+    section_header(&format!("DFM embedded binaries - {} blobs", blobs.len()));
     // Group by kind.
     let mut by_kind: BTreeMap<&'static str, Vec<&EmbeddedBlob<'_, '_>>> = Default::default();
     for b in &blobs {
@@ -853,7 +853,7 @@ fn print_blob_catalog(bin: &DelphiBinary<'_>) {
     for (kind, list) in &by_kind {
         let total_size: usize = list.iter().map(|b| b.data.len()).sum();
         println!(
-            "\n  {} — {} blobs, {} bytes total",
+            "\n  {} - {} blobs, {} bytes total",
             kind,
             list.len(),
             total_size

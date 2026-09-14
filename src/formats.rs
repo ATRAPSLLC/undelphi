@@ -7,7 +7,7 @@
 //!
 //! Only the subset relevant to Delphi metadata extraction is tracked:
 //!
-//! - Read-only data range (where `.rdata` / `__const` / `.rodata` lives — the
+//! - Read-only data range (where `.rdata` / `__const` / `.rodata` lives - the
 //!   home of strings, RTTI, VMTs).
 //! - Resource range on PE (`.rsrc`). On Mach-O / ELF the equivalent lives
 //!   inside a user data segment and is located by magic-byte scan, not by
@@ -47,13 +47,13 @@ use crate::detection::{TargetArch, TargetOs};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BinaryFormat {
-    /// 32-bit ELF — Linux / FreeBSD / Android (i386, ARM).
+    /// 32-bit ELF - Linux / FreeBSD / Android (i386, ARM).
     Elf32,
-    /// 64-bit ELF — Linux / FreeBSD / Android (x86_64, AArch64).
+    /// 64-bit ELF - Linux / FreeBSD / Android (x86_64, AArch64).
     Elf64,
-    /// 32-bit Mach-O — older macOS / iOS.
+    /// 32-bit Mach-O - older macOS / iOS.
     MachO32,
-    /// 64-bit Mach-O — modern macOS / iOS.
+    /// 64-bit Mach-O - modern macOS / iOS.
     MachO64,
     /// 32-bit PE (`PE32`).
     Pe32,
@@ -193,7 +193,7 @@ impl<'a> fmt::Debug for BinaryContext<'a> {
 impl<'a> BinaryContext<'a> {
     /// Parse a binary, populating format, section, and segment tables.
     ///
-    /// Always succeeds — returns an empty context for garbage input so that
+    /// Always succeeds - returns an empty context for garbage input so that
     /// heuristic scans can still run.
     pub fn new(data: &'a [u8]) -> Self {
         let mut format = detect_format(data);
@@ -392,7 +392,7 @@ impl<'a> BinaryContext<'a> {
 
     /// Target OS inferred from container metadata (independent of the
     /// compiler build-string). `TargetOs::Unknown` when the container
-    /// couldn't be parsed. Mach-O always reports `Darwin` — distinguishing
+    /// couldn't be parsed. Mach-O always reports `Darwin` - distinguishing
     /// macOS from iOS requires a build-string match.
     #[inline]
     pub fn target_os(&self) -> TargetOs {
@@ -425,8 +425,8 @@ impl<'a> BinaryContext<'a> {
     ///
     /// `false` either because the input has no recognised container magic,
     /// or because the magic is there but the headers are truncated /
-    /// malformed. `BinaryContext::new` is infallible — heuristic scans still
-    /// run on garbage input — so callers that want to discriminate "not
+    /// malformed. `BinaryContext::new` is infallible - heuristic scans still
+    /// run on garbage input - so callers that want to discriminate "not
     /// Delphi" from "broken executable" should consult this flag.
     #[inline]
     pub fn container_parsed(&self) -> bool {
@@ -460,12 +460,12 @@ impl<'a> BinaryContext<'a> {
     /// Translate a virtual address to a file offset.
     ///
     /// `segments` is sorted by `segment_va` at construction time, so this is
-    /// O(log n). Hot path — called once per pointer dereference during VMT /
+    /// O(log n). Hot path - called once per pointer dereference during VMT /
     /// RTTI walks.
     pub fn va_to_file(&self, va: u64) -> Option<usize> {
         // `partition_point` gives the count of segments whose start VA is
         // `<= va`. The candidate that could contain `va` is therefore the
-        // last one in that prefix — if any.
+        // last one in that prefix - if any.
         let idx = self
             .segments
             .partition_point(|&(seg_va, _, _)| seg_va <= va);
@@ -505,7 +505,7 @@ impl<'a> BinaryContext<'a> {
     ///
     /// Returns `None` when the container could not be parsed by goblin;
     /// callers that want to scan anyway can fall back to trying both 4 and 8.
-    /// Cached at construction — this is a field read.
+    /// Cached at construction - this is a field read.
     #[inline]
     pub fn pointer_size(&self) -> Option<usize> {
         self.pointer_size
@@ -587,7 +587,7 @@ pub fn detect_format(data: &[u8]) -> BinaryFormat {
         [0xfe, 0xed, 0xfa, 0xce] | [0xce, 0xfa, 0xed, 0xfe] => BinaryFormat::MachO32,
         // Mach-O 64-bit LE/BE.
         [0xfe, 0xed, 0xfa, 0xcf] | [0xcf, 0xfa, 0xed, 0xfe] => BinaryFormat::MachO64,
-        // Fat / universal binaries — bitness mixed; report 32 as placeholder.
+        // Fat / universal binaries - bitness mixed; report 32 as placeholder.
         [0xca, 0xfe, 0xba, 0xbe] | [0xbe, 0xba, 0xfe, 0xca] => BinaryFormat::MachO32,
         [b'M', b'Z', _, _] => BinaryFormat::Pe32,
         _ => BinaryFormat::Unknown,

@@ -5,18 +5,18 @@
 //! this information across the Delphi / FPC era matrix, and they are *not*
 //! interchangeable:
 //!
-//! 1. **Delphi published-method trailer** — extra bytes appended to each
+//! 1. **Delphi published-method trailer** - extra bytes appended to each
 //!    [`crate::methods::MethodEntry`] in the classic `vmtMethodTable`. Only
 //!    emitted under `{$METHODINFO ON}` (Web Services / RemObjects), so it is
 //!    absent from most binaries. Layout reverse-engineered from
 //!    `reference/IDR-cpp/IDCGen.cpp::OutputVmtMethodEntryTail` (32-bit) and
 //!    `reference/IDR64/IDCGen.cpp` (64-bit). Decoded by
 //!    [`MethodSignature::from_published_trailer`].
-//! 2. **FPC `TVmtMethodExTable`** — a separate, richer table sited
+//! 2. **FPC `TVmtMethodExTable`** - a separate, richer table sited
 //!    immediately after the basic FPC method-name table. Documented in
 //!    `reference/fpc-source/rtl/objpas/typinfo.pp`. *(decoded in a later
 //!    iteration)*
-//! 3. **Delphi 2010+ extended-RTTI method table** — part of the extended
+//! 3. **Delphi 2010+ extended-RTTI method table** - part of the extended
 //!    `tkClass` type data. Layout is not publicly documented. *(decoded in a
 //!    later iteration)*
 //!
@@ -110,7 +110,7 @@ impl MethodKind {
 /// shares for the conventions it supports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallConv {
-    /// `register` (Borland fastcall) — the Delphi default.
+    /// `register` (Borland fastcall) - the Delphi default.
     Register,
     /// `cdecl`.
     Cdecl,
@@ -293,7 +293,7 @@ pub struct MethodParam<'a> {
 /// (absent from published-trailer entries).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExtendedMethodInfo {
-    /// Raw entry flags word (bit layout not decoded — see
+    /// Raw entry flags word (bit layout not decoded - see
     /// [`crate::methods::DelphiExtMethod::flags`]).
     pub flags: u16,
     /// VMT slot index for virtual methods (`-1`/large for non-virtual).
@@ -310,7 +310,7 @@ pub struct MethodSignature<'a> {
     pub kind: MethodKind,
     /// Calling convention.
     pub call_conv: CallConv,
-    /// Ordered formal parameters (including any hidden ones — filter with
+    /// Ordered formal parameters (including any hidden ones - filter with
     /// [`ParamFlags::is_hidden`]). For Delphi instance methods the first
     /// parameter is the implicit `Self` (passed `pfAddress`).
     pub params: Vec<MethodParam<'a>>,
@@ -334,7 +334,7 @@ pub struct MethodSignature<'a> {
 pub enum SignatureReport<'a> {
     /// One or more signatures decoded.
     Decoded(Vec<MethodSignature<'a>>),
-    /// The class carries no method-signature RTTI — classic / pre-2010
+    /// The class carries no method-signature RTTI - classic / pre-2010
     /// Delphi, or FPC built without extended method RTTI. Not an error.
     Absent,
     /// Signature RTTI appears to be present but this parser does not decode
@@ -574,8 +574,8 @@ mod tests {
     }
 
     /// Build a 64-bit published-method trailer for two parameters with null
-    /// (`0`) type pointers — so decoding walks the byte layout without
-    /// needing a populated binary — and confirm the structure parses.
+    /// (`0`) type pointers - so decoding walks the byte layout without
+    /// needing a populated binary - and confirm the structure parses.
     #[test]
     fn published_trailer_decodes_byte_layout() {
         fn push_ptr0(v: &mut Vec<u8>) {

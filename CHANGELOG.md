@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.3.3
+
+Maintenance release. No API or behavior changes.
+
+### Fixed
+
+- **Clippy on current stable.** UTF-16 decoding in `DfmValue::as_text`,
+  `DfmValue::as_text_strict`, the DFM renderer, and PE resource-name reading
+  now uses `as_chunks::<2>()` instead of `chunks_exact(2)` plus a fallible
+  array conversion, satisfying the new `chunks_exact_to_as_chunks` lint.
+  `as_chunks` is stable since Rust 1.88, so the MSRV is unchanged.
+
+### Changed
+
+- Replaced em-dashes with plain hyphens throughout rustdoc, comments, the
+  README, `SAMPLES.md`, and this changelog, including the crate description.
+  Two lines that began with a dash were reworded so they no longer render as
+  stray list items.
+
+### Added
+
+- Source and build notes for two controlled test fixtures:
+  `tests/fixtures/known-rtti/` (the `known.pas` golden source behind
+  `tests/known_rtti.rs`, with the FPC 3.2.2 / 3.0.4 build matrix and the
+  extraction differences it surfaced) and `tests/fixtures/fpc-methodrtti/`
+  (documents that FPC 3.2.2 does not emit `TVmtMethodExTable`).
+
+### Dependencies
+
+- Refreshed `Cargo.lock` (`log` 0.4.33 -> 0.4.34, `scroll_derive` 0.13.1 ->
+  0.13.2, which adds `syn` 3.0.5). Direct dependencies (`goblin`, `scroll`,
+  `tracing`) were already current.
+
 ## 0.3.2
 
 Security and ownership release.
@@ -8,7 +41,7 @@ Security and ownership release.
 
 - **Unbounded recursion in the DFM reader.** The form stream is untrusted input
   carved out of the analyzed binary, and neither the `read_object`/`read_children`
-  cycle nor `read_value`'s list arm bounded recursion — one nesting byte bought one
+  cycle nor `read_value`'s list arm bounded recursion - one nesting byte bought one
   stack frame, so a crafted DFM could exhaust the stack and abort the process.
   Nesting is now capped at `MAX_DFM_DEPTH` (64), far above any legitimate form.
 
@@ -46,18 +79,18 @@ first Linux ELF and macOS x86-64 Mach-O test binaries.
 
 ### Added
 
-- **`DelphiBinary::types()`** — enumerate every RTTI type record in the
+- **`DelphiBinary::types()`** - enumerate every RTTI type record in the
   binary, not just the ones hanging off a class. It runs a transitive
   closure over `PPTypeInfo` references (class parents, property / field
   types, method-signature param/return types, extended-property types, enum
   base types, set/array/dynarray element types, pointer targets, record
   fields, interface parents) and then, on Delphi, a **self-cell pass** (every
-  Delphi `PTypeInfo` is preceded by a self-referencing `PPTypeInfo` cell —
+  Delphi `PTypeInfo` is preceded by a self-referencing `PPTypeInfo` cell -
   the `vmtSelfPtr` analogue) that recovers types referenced only from code.
   Reaches ~97 % of all `PTypeInfo` in a Delphi image (e.g. the enum
   dictionary on HeidiSQL 12 grows from ~250 to ~880). Returns
   `Vec<TypeDetail>`; bounded by `limits::MAX_RTTI_TYPES`.
-- **Method signatures** — `DelphiBinary::method_signatures(class)` returns an
+- **Method signatures** - `DelphiBinary::method_signatures(class)` returns an
   era-tagged `signatures::SignatureReport` (`Decoded` / `Absent` /
   `Unsupported`) of `MethodSignature` (name, `MethodKind`, `CallConv`, ordered
   `MethodParam`s with name / resolved type / `ParamMode`, return type, code
@@ -68,23 +101,23 @@ first Linux ELF and macOS x86-64 Mach-O test binaries.
   `rtti::TypeDetail`):
   - `tkPointer` and `tkArray` now decode (`TypeDetail::Pointer` / `Array`
     with `PointerInfo` / `ArrayInfo` and their target / element types).
-  - `RecordInfo::fields` — the full Delphi 2010+ record field table (every
+  - `RecordInfo::fields` - the full Delphi 2010+ record field table (every
     field's name, resolved type, offset, and visibility flags), not just
     managed fields. New `rtti::RecordField`.
   - `ProcedureInfo` now decodes its inline `TProcedureSignature` (calling
     convention, parameters, return type) instead of just the header. New
     `rtti::SignatureParam`.
-  - `MethodInfo::param_type_refs` / `result_type_ref` — the modern `tkMethod`
+  - `MethodInfo::param_type_refs` / `result_type_ref` - the modern `tkMethod`
     per-parameter `PPTypeInfo` references (cross-validated against the
     name-based parameter types).
-  - `TypeDetail::referenced_pptrs()` — the onward type references a record
+  - `TypeDetail::referenced_pptrs()` - the onward type references a record
     points at.
-- **`forms()` raw-magic fallback** — when the PE `RT_RCDATA` and FPC
+- **`forms()` raw-magic fallback** - when the PE `RT_RCDATA` and FPC
   internal-resources passes find nothing, `forms()` now scans for `TPF0` /
   `TPF1` streams and re-parses each candidate, recovering forms from stripped
   or unconventionally-packaged binaries. New `dfm::scan_streams`.
 - `detection::TargetArch::fpc_requires_proper_alignment()`.
-- `examples/corpus_scan` — a re-runnable bulk triage / regression tool that
+- `examples/corpus_scan` - a re-runnable bulk triage / regression tool that
   reports parse outcomes, compiler / format histograms, and extraction
   anomalies across a directory tree.
 - First Linux ELF (`doublecmd` gtk2 x86-64, FPC) and macOS x86-64 Mach-O
@@ -153,8 +186,8 @@ walkers that weren't reachable before.
 
 - **`DelphiBinary::parse` now returns `Result<Self, ParseError>`**
   instead of `Option<Self>`. Variants: `NotRecognized` (the quiet
-  no-Delphi-markers case — safe to ignore), `TruncatedContainer`
-  (recognised magic but malformed headers — worth logging), and
+  no-Delphi-markers case - safe to ignore), `TruncatedContainer`
+  (recognised magic but malformed headers - worth logging), and
   `UnrecognizedFormat` (no known container magic at all). `ParseError`
   implements `Display` and `std::error::Error`.
 - **Name accessors return `&str` by default**, lossily decoded with a
@@ -181,7 +214,7 @@ walkers that weren't reachable before.
 
 ### Aggregated entrypoint
 
-- **`bin.code_entrypoints()`** — single call producing every code VA
+- **`bin.code_entrypoints()`** - single call producing every code VA
   the crate can confidently label, tagged by `EntrypointKind`
   (`PublishedMethod`, `VmtSlot`, `DynamicMessage`, `InterfaceGetter`,
   `InterfaceMethod`, `PropertyGetter`, `PropertySetter`,
@@ -192,26 +225,26 @@ walkers that weren't reachable before.
 
 ### New walkers
 
-- **`bin.interface_methods(entry)`** — walks an interface's vtable
+- **`bin.interface_methods(entry)`** - walks an interface's vtable
   pointer-by-pointer, terminating at the first slot that doesn't
   contain a plausible code VA. Slot count + code VAs are recovered
   on every Delphi and FPC binary, including stripped builds. Method
   *names* are populated when the `tkInterface` RTTI carries
-  per-method records — recovered via a binary-wide GUID-keyed
+  per-method records - recovered via a binary-wide GUID-keyed
   RTTI index built lazily on first call. The new
   [`rtti::IntfMethodTable`] / [`rtti::IntfMethodEntry`] types expose
   the parsed table directly when needed.
-- **`bin.class_attributes(class)`** — walks past the classic
+- **`bin.class_attributes(class)`** - walks past the classic
   `TPropData` and the extended-property block to find the modern
   `AttrData` trailer, then decodes its packed `[attribute]`
   entries. Layout-driven; returns whatever the trailer actually
   contains regardless of compiler family.
-- **`bin.unit_init_procs()`** — locates the FPC `INITFINAL` table via
+- **`bin.unit_init_procs()`** - locates the FPC `INITFINAL` table via
   symbol lookup (`INITFINAL` / `_INITFINAL` / `FPC_INITFINAL` across
   ELF symtab, Mach-O `LC_SYMTAB`, and PE exports), with a heuristic
   shape scan over data sections as a fallback for stripped builds.
   Returns `Vec<UnitInitProc { unit_name, init_va, finalize_va }>`.
-  Delphi-compiled binaries return empty by design — Delphi inlines
+  Delphi-compiled binaries return empty by design - Delphi inlines
   unit init into the entry-point startup sequence; consumers wanting
   the unit list use [`DelphiBinary::package_info`] instead.
 
@@ -220,28 +253,28 @@ walkers that weren't reachable before.
 - `Access::resolve(virtual_methods)` returning a new `AccessTarget`
   enum (`CodeVa` / `FieldOffset` / `Constant` / `UnresolvedSlot` /
   `Missing`). Hides the VMT slot-index → VA lookup.
-- `Class::parent(&self, set)` — resolves `parent_index` against a
+- `Class::parent(&self, set)` - resolves `parent_index` against a
   `ClassSet`.
-- `ClassSet::iter_with_parents()` — yields
+- `ClassSet::iter_with_parents()` - yields
   `(class, Option<&Class>)` pairs.
-- `DfmValue::as_text()` — unifies `String` and `Utf16` variants
+- `DfmValue::as_text()` - unifies `String` and `Utf16` variants
   behind a single `Cow<'_, str>` accessor.
-- `DfmValue::as_f64()` — decodes the 10-byte Intel 80-bit extended
+- `DfmValue::as_f64()` - decodes the 10-byte Intel 80-bit extended
   (lossy).
-- `DfmObject::walk_with_path()` — depth-first walker yielding
+- `DfmObject::walk_with_path()` - depth-first walker yielding
   `(dotted_path, &DfmObject)`.
 - `FormFlavor` enum (`Tpf0` / `Tpf1`) on `DfmObject`.
 - `Deref<Target = Property>` on `ExtendedProperty`. `ep.name()` now
   works without going through `ep.info.…`.
 - `Display` impls on `Guid` (no `String` allocation, in hot paths)
   and `BlobKind`. `Guid` also gains `Hash`, `PartialOrd`, `Ord`.
-- `bin.target_os()` / `bin.target_arch()` — fall back to
+- `bin.target_os()` / `bin.target_arch()` - fall back to
   container-level inference (PE → Windows, Mach-O → Darwin, ELF →
   Linux; arch from PE `Machine` / ELF `e_machine` / Mach-O
   `cputype`) when the compiler build-string is absent.
-- `bin.ctx().container_parsed()` — whether goblin walked the
+- `bin.ctx().container_parsed()` - whether goblin walked the
   container cleanly. Drives `ParseError::TruncatedContainer`.
-- `bin.ctx().is_code_va(va)` — whether `va` lies inside the binary's
+- `bin.ctx().is_code_va(va)` - whether `va` lies inside the binary's
   primary code section. Used by `interface_methods` and the
   `unit_init_procs` heuristic.
 

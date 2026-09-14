@@ -1,7 +1,7 @@
 //! Class extraction built on top of [`crate::vmt`].
 //!
 //! The [`ClassSet`] wraps the list of VMTs found by the scanner, indexes
-//! them by VMT base VA (which is the value Delphi's `vmtParent` slot holds —
+//! them by VMT base VA (which is the value Delphi's `vmtParent` slot holds -
 //! per ESET DelphiHelper's `__ResolveParent`), and resolves parent → child
 //! relationships. Class-name strings still point back at the caller's
 //! byte buffer.
@@ -202,7 +202,7 @@ impl<'a> ClassSet<'a> {
 
     /// Root `TObject`, if present (the class whose parent chain terminates
     /// at a null `vmtParent`). Multiple root candidates can exist in a
-    /// heavily packed binary where VMT fragments survive — the first found
+    /// heavily packed binary where VMT fragments survive - the first found
     /// wins.
     pub fn root(&self) -> Option<&Class<'a>> {
         self.classes.iter().find(|c| c.parent_index.is_none())
@@ -228,7 +228,7 @@ impl<'a> ClassSet<'a> {
             .filter(move |c| c.vmt.parent_vmt == target)
     }
 
-    /// Count classes with no parent index — the sum of genuine roots and
+    /// Count classes with no parent index - the sum of genuine roots and
     /// classes whose parent VMT points outside the scanned set. For a clean
     /// standalone EXE this is typically `1` (just `TObject`); for a BPL
     /// runtime package it is much higher because every class imports its
@@ -241,7 +241,7 @@ impl<'a> ClassSet<'a> {
             .count()
     }
 
-    /// Count classes whose `vmtParent` is null — genuine ancestry roots like
+    /// Count classes whose `vmtParent` is null - genuine ancestry roots like
     /// Delphi's `TObject`. Typically `1` for a standalone EXE and `0` for a
     /// BPL (whose `TObject` lives in `rtl*.bpl`).
     pub fn root_count(&self) -> usize {
@@ -253,7 +253,7 @@ impl<'a> ClassSet<'a> {
 
     /// Count classes with a non-null `vmtParent` that doesn't resolve to any
     /// VMT in the scanned set. These inherit from a class exported by a
-    /// dependency package — the expected shape for BPL runtime packages.
+    /// dependency package - the expected shape for BPL runtime packages.
     pub fn external_parent_count(&self) -> usize {
         self.classes
             .iter()
@@ -273,7 +273,7 @@ impl<'a> ClassSet<'a> {
         map
     }
 
-    /// Roots — classes with no in-set parent (i.e. `TObject` and stragglers).
+    /// Roots - classes with no in-set parent (i.e. `TObject` and stragglers).
     pub fn roots(&self) -> Vec<usize> {
         self.classes
             .iter()

@@ -29,15 +29,15 @@
 //!
 //! Delphi packs the dispatch kind into the high byte of the
 //! `GetProc` / `SetProc` / `StoredProc` pointer. The encoding is
-//! pointer-width-independent — in both 32-bit and 64-bit binaries the
+//! pointer-width-independent - in both 32-bit and 64-bit binaries the
 //! discriminator lives in the *most-significant byte* of the
 //! pointer-sized slot:
 //!
 //! | Top byte | Meaning |
 //! |----------|---------|
-//! | `0x00..=0x7F` (top two bits clear) | Direct code pointer — call this function. |
-//! | `0xFE` | Virtual method — low bits are the VMT-relative slot index. |
-//! | `0xFF` | Direct field offset — low bits are the instance-relative offset. |
+//! | `0x00..=0x7F` (top two bits clear) | Direct code pointer - call this function. |
+//! | `0xFE` | Virtual method - low bits are the VMT-relative slot index. |
+//! | `0xFF` | Direct field offset - low bits are the instance-relative offset. |
 //!
 //! Sources: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:107-119`
 //! (`bitmask & 0xC0 == 0` test for "static code pointer") and the same
@@ -67,14 +67,14 @@ use crate::{
 /// How the compiler dispatches a getter / setter / stored access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessKind {
-    /// No handler — common for `stored` on read-only properties, or for
+    /// No handler - common for `stored` on read-only properties, or for
     /// setters on read-only properties.
     None,
-    /// Direct field access — the value is the instance-relative byte offset.
+    /// Direct field access - the value is the instance-relative byte offset.
     Field,
-    /// Virtual method — the value is the VMT slot index.
+    /// Virtual method - the value is the VMT slot index.
     Virtual,
-    /// Static method — the value is a code pointer (VA).
+    /// Static method - the value is a code pointer (VA).
     Static,
     /// FPC "constant" access where the raw value is a constant index.
     Const,
@@ -84,15 +84,15 @@ pub enum AccessKind {
 ///
 /// `value` is interpreted by `kind`:
 ///
-/// - [`AccessKind::Static`] — `value` is an absolute code VA. Subtract the
+/// - [`AccessKind::Static`] - `value` is an absolute code VA. Subtract the
 ///   image base for an RVA.
-/// - [`AccessKind::Field`] — `value` is the instance-relative byte offset
+/// - [`AccessKind::Field`] - `value` is the instance-relative byte offset
 ///   of the backing field.
-/// - [`AccessKind::Virtual`] — `value` is a **VMT slot index**, *not* a
+/// - [`AccessKind::Virtual`] - `value` is a **VMT slot index**, *not* a
 ///   VA. Resolve against the class's virtual-method table to get a code
 ///   VA. [`Access::resolve`] does this for you.
-/// - [`AccessKind::Const`] — `value` is a constant (FPC-only).
-/// - [`AccessKind::None`] — no handler.
+/// - [`AccessKind::Const`] - `value` is a constant (FPC-only).
+/// - [`AccessKind::None`] - no handler.
 #[derive(Debug, Clone, Copy)]
 pub struct Access {
     /// How to interpret `value`.
@@ -107,15 +107,15 @@ pub struct Access {
 /// Returned by [`Access::resolve`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessTarget {
-    /// Absolute code VA — for [`AccessKind::Static`] and successfully
+    /// Absolute code VA - for [`AccessKind::Static`] and successfully
     /// resolved [`AccessKind::Virtual`] entries.
     CodeVa(u64),
-    /// Instance-relative field offset — for [`AccessKind::Field`].
+    /// Instance-relative field offset - for [`AccessKind::Field`].
     FieldOffset(u32),
-    /// FPC constant value — for [`AccessKind::Const`].
+    /// FPC constant value - for [`AccessKind::Const`].
     Constant(u64),
     /// Virtual slot whose VMT lookup didn't land on a code pointer.
-    /// Returned only when resolution fails — the caller can still attempt
+    /// Returned only when resolution fails - the caller can still attempt
     /// their own lookup.
     UnresolvedSlot(u16),
     /// No handler ([`AccessKind::None`]).
@@ -128,7 +128,7 @@ impl Access {
     /// field-offset / virtual-slot / static-code-pointer encodings
     /// (the Delphi convention).
     pub fn from_ptr(raw: u64, ptr_size: usize) -> Self {
-        // Inspect the top byte of the pointer — Delphi encodes `$FF..` for
+        // Inspect the top byte of the pointer - Delphi encodes `$FF..` for
         // "field offset" and `$FE..` for "virtual dispatch" on 64-bit (and
         // similar on 32-bit, where the high byte of a 32-bit pointer
         // carries the same discriminator bits).
@@ -233,7 +233,7 @@ pub struct Property<'a> {
     pub stored: Access,
     /// Property index (as in `property Foo[I: Integer]: Bar index I`).
     pub index: i32,
-    /// Default value — compiler's serialised representation of the
+    /// Default value - compiler's serialised representation of the
     /// `default` clause.
     pub default: i32,
     /// Name-index hint for fast property lookup.
@@ -366,7 +366,7 @@ fn iter_fpc_tkclass<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Property<
         };
         // PropProcs at +10. The IsStatic / PropParams / AttributeTable
         // fields documented in `typinfo.pp` aren't part of the inline
-        // record in the FPC versions we've sampled — they live in a
+        // record in the FPC versions we've sampled - they live in a
         // separate structure (or have been deferred to FPC 3.3+ layouts
         // we don't yet target). A truncated record here means the table
         // is malformed; surface it as a stop rather than guessing 0.
@@ -380,7 +380,7 @@ fn iter_fpc_tkclass<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Property<
             || name.len() > MAX_IDENTIFIER_BYTES
             || !name.iter().all(is_prop_name_byte)
         {
-            // Plausibility failed — most likely iteration has run off the
+            // Plausibility failed - most likely iteration has run off the
             // end of the TPropData block into padding or the next
             // structure. Stop gracefully instead of reporting None.
             break;
@@ -390,7 +390,7 @@ fn iter_fpc_tkclass<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Property<
         };
 
         // Property::va is documented to be 0 when the file offset can't
-        // be translated back to a VA — that happens for synthetic
+        // be translated back to a VA - that happens for synthetic
         // sections we don't track, not for malformed input.
         let va = range_to_va(ctx, cursor).unwrap_or(0);
         out.push(Property {
@@ -458,7 +458,7 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Propert
         let record_size = fixed.checked_add(1)?.checked_add(name.len())?;
 
         // Property::va is documented to be 0 when the file offset can't
-        // be translated back to a VA — that happens for synthetic
+        // be translated back to a VA - that happens for synthetic
         // sections we don't track, not for malformed input.
         let va = range_to_va(ctx, cursor).unwrap_or(0);
         out.push(Property {

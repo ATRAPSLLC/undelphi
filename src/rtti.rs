@@ -98,17 +98,17 @@ fn fpc_kind_from_byte(byte: u8) -> TypeKind {
         6 => TypeKind::Method,
         7 => TypeKind::String,  // FPC tkSString
         8 => TypeKind::LString, // FPC tkLString
-        9 => TypeKind::LString, // FPC tkAString — treat as AnsiString-like
+        9 => TypeKind::LString, // FPC tkAString - treat as AnsiString-like
         10 => TypeKind::WString,
         11 => TypeKind::Variant,
         12 => TypeKind::Array,
         13 => TypeKind::Record,
         14 => TypeKind::Interface,
         15 => TypeKind::Class,
-        // 16 is tkObject — no Delphi equivalent; closest is Class.
+        // 16 is tkObject - no Delphi equivalent; closest is Class.
         16 => TypeKind::Class,
         17 => TypeKind::WChar,
-        // 18 is tkBool — Delphi doesn't have a dedicated kind (booleans
+        // 18 is tkBool - Delphi doesn't have a dedicated kind (booleans
         // are enumerations in Delphi), so map to Enumeration.
         18 => TypeKind::Enumeration,
         19 => TypeKind::Int64,
@@ -126,8 +126,8 @@ fn fpc_kind_from_byte(byte: u8) -> TypeKind {
     }
 }
 
-/// The Delphi `TTypeKind` enumeration. FPC's enum is **different** — see
-/// module docs — and we do not expose it as a single shared type because
+/// The Delphi `TTypeKind` enumeration. FPC's enum is **different** - see
+/// module docs - and we do not expose it as a single shared type because
 /// the semantic overlap is too small for a unified `TypeKind` to be honest.
 /// When you need FPC values, dispatch on `VmtFlavor` and compare the raw
 /// byte directly (or use [`tkclass_byte`]).
@@ -232,12 +232,12 @@ pub struct TkClassInfo<'a> {
     /// VA the TypeData's `ClassType` slot points at (should equal the VMT
     /// base address).
     pub class_type_va: u64,
-    /// VA the TypeData's `ParentInfo` slot holds. This is a `PPTypeInfo` —
+    /// VA the TypeData's `ParentInfo` slot holds. This is a `PPTypeInfo` -
     /// a pointer to a pointer to the parent's PTypeInfo record.
     pub parent_info_va: u64,
     /// Published-property count advertised by the TypeData header.
     /// **Note:** the RTTI stream then carries a `TPropData` block whose own
-    /// `PropCount` may differ (ancestry-aware vs self-only semantics —
+    /// `PropCount` may differ (ancestry-aware vs self-only semantics -
     /// open question, see `RESEARCH.md §14`).
     pub prop_count: i16,
     /// Unit name as a short-string body.
@@ -311,7 +311,7 @@ impl<'a> TkClassInfo<'a> {
         if kind_byte != tkclass_byte(flavor) {
             return None;
         }
-        // Always tag as Delphi's TypeKind::Class — callers who need the
+        // Always tag as Delphi's TypeKind::Class - callers who need the
         // raw byte use `kind_byte` directly.
         let kind = TypeKind::Class;
 
@@ -322,7 +322,7 @@ impl<'a> TkClassInfo<'a> {
         // On `FPC_REQUIRES_PROPER_ALIGNMENT` targets (ARM / AArch64) the
         // first TypeData field is pointer-aligned after the preceding
         // `Name: ShortString`. x86 / x86-64 stay packed on *every* container
-        // — including ELF and Mach-O — so the decision is made from the
+        // - including ELF and Mach-O - so the decision is made from the
         // architecture, not from "is this PE?".
         // Source: `reference/fpc-source/rtl/objpas/typinfo.pp:867-871`.
         if ptr_size > 1 && ctx.target_arch().fpc_requires_proper_alignment() {
@@ -360,7 +360,7 @@ impl<'a> TkClassInfo<'a> {
     }
 }
 
-/// Minimal identifier sanity check — same rules as [`crate::vmt`] class
+/// Minimal identifier sanity check - same rules as [`crate::vmt`] class
 /// names but allows lowercase (unit names conventionally begin with a
 /// capital but `SysInit`/`system`/etc. can appear lower).
 fn is_plausible_identifier(name: &[u8]) -> bool {
@@ -463,7 +463,7 @@ pub enum OrdinalType {
     SLong,
     /// Unsigned 32-bit.
     ULong,
-    /// Unknown byte value — falls through gracefully.
+    /// Unknown byte value - falls through gracefully.
     Unknown(u8),
 }
 
@@ -605,9 +605,9 @@ pub enum FloatType {
     Double,
     /// 10-byte Intel 80-bit extended precision.
     Extended,
-    /// 8-byte Int64 scaled — historical Borland "Comp" type.
+    /// 8-byte Int64 scaled - historical Borland "Comp" type.
     Comp,
-    /// 8-byte Int64 scaled by 10 000 — Delphi `Currency`.
+    /// 8-byte Int64 scaled by 10 000 - Delphi `Currency`.
     Currency,
     /// Unknown discriminator byte.
     Unknown(u8),
@@ -626,7 +626,7 @@ impl FloatType {
     }
 }
 
-/// `tkInteger` / `tkChar` / `tkWChar` — bounded ordinal types.
+/// `tkInteger` / `tkChar` / `tkWChar` - bounded ordinal types.
 #[derive(Debug, Clone, Copy)]
 pub struct OrdinalInfo<'a> {
     /// Type header (Kind + Name).
@@ -639,7 +639,7 @@ pub struct OrdinalInfo<'a> {
     pub max: i32,
 }
 
-/// `tkFloat` — floating-point types.
+/// `tkFloat` - floating-point types.
 #[derive(Debug, Clone, Copy)]
 pub struct FloatInfo<'a> {
     /// Type header.
@@ -648,7 +648,7 @@ pub struct FloatInfo<'a> {
     pub float_type: FloatType,
 }
 
-/// `tkSet` — set-of-enumeration types.
+/// `tkSet` - set-of-enumeration types.
 #[derive(Debug, Clone, Copy)]
 pub struct SetInfo<'a> {
     /// Header (name + Kind).
@@ -661,7 +661,7 @@ pub struct SetInfo<'a> {
     pub element_type: Option<TypeHeader<'a>>,
 }
 
-/// `tkClassRef` — `class of TSomething` metaclass references.
+/// `tkClassRef` - `class of TSomething` metaclass references.
 #[derive(Debug, Clone, Copy)]
 pub struct ClassRefInfo<'a> {
     /// Header.
@@ -672,14 +672,14 @@ pub struct ClassRefInfo<'a> {
     pub instance_type: Option<TypeHeader<'a>>,
 }
 
-/// `tkDynArray` — dynamic array types.
+/// `tkDynArray` - dynamic array types.
 #[derive(Debug, Clone, Copy)]
 pub struct DynArrayInfo<'a> {
     /// Header.
     pub header: TypeHeader<'a>,
     /// Size of one element in bytes.
     pub elem_size: u32,
-    /// Element type VA (non-zero only for managed element types — strings,
+    /// Element type VA (non-zero only for managed element types - strings,
     /// interfaces, other dynamic arrays, etc.). Null for plain scalar
     /// element types. See `DynArrayInfo::elem_type_any` for the unified
     /// element-type view.
@@ -705,7 +705,7 @@ impl<'a> DynArrayInfo<'a> {
     }
 }
 
-/// `tkInterface` — COM-style interface types.
+/// `tkInterface` - COM-style interface types.
 #[derive(Debug, Clone, Copy)]
 pub struct InterfaceTypeInfo<'a> {
     /// Header.
@@ -746,7 +746,7 @@ pub struct RecordManagedField<'a> {
     pub field_type: Option<TypeHeader<'a>>,
 }
 
-/// One entry in a `tkRecord`'s full (extended) field table — *every* field,
+/// One entry in a `tkRecord`'s full (extended) field table - *every* field,
 /// not just the managed ones. Emitted by Delphi 2010+.
 #[derive(Debug, Clone, Copy)]
 pub struct RecordField<'a> {
@@ -775,25 +775,25 @@ impl<'a> RecordField<'a> {
     }
 }
 
-/// `tkRecord` — value-type record definition.
+/// `tkRecord` - value-type record definition.
 #[derive(Debug, Clone)]
 pub struct RecordInfo<'a> {
     /// Header.
     pub header: TypeHeader<'a>,
     /// Total record size in bytes.
     pub record_size: u32,
-    /// Managed-field entries (references that need refcount management —
+    /// Managed-field entries (references that need refcount management -
     /// strings, dynamic arrays, interfaces, other records with managed
     /// members).
     pub managed_fields: Vec<RecordManagedField<'a>>,
-    /// Full field table — every field with its name, type, offset, and
+    /// Full field table - every field with its name, type, offset, and
     /// visibility. Populated only for Delphi 2010+ records that emit the
     /// extended layout; empty otherwise (pre-2010 Delphi, FPC, or the
     /// synthetic `vmtInitTable` record).
     pub fields: Vec<RecordField<'a>>,
 }
 
-/// `tkPointer` — `^T` typed pointer.
+/// `tkPointer` - `^T` typed pointer.
 #[derive(Debug, Clone, Copy)]
 pub struct PointerInfo<'a> {
     /// Header.
@@ -828,7 +828,7 @@ impl<'a> PointerInfo<'a> {
     }
 }
 
-/// `tkArray` — fixed-length `array[...] of T`.
+/// `tkArray` - fixed-length `array[...] of T`.
 #[derive(Debug, Clone, Copy)]
 pub struct ArrayInfo<'a> {
     /// Header.
@@ -881,13 +881,13 @@ impl<'a> ArrayInfo<'a> {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum TypeDetail<'a> {
-    /// tkPointer — `^T` typed pointer.
+    /// tkPointer - `^T` typed pointer.
     Pointer(PointerInfo<'a>),
-    /// tkArray — fixed-length array.
+    /// tkArray - fixed-length array.
     Array(ArrayInfo<'a>),
-    /// tkClass — full class record including unit + published-property count.
+    /// tkClass - full class record including unit + published-property count.
     Class(TkClassInfo<'a>),
-    /// tkEnumeration — element names + bounds.
+    /// tkEnumeration - element names + bounds.
     Enumeration(EnumInfo<'a>),
     /// tkInteger / tkChar / tkWChar.
     Ordinal(OrdinalInfo<'a>),
@@ -903,13 +903,13 @@ pub enum TypeDetail<'a> {
     Interface(InterfaceTypeInfo<'a>),
     /// tkRecord.
     Record(RecordInfo<'a>),
-    /// tkMethod — method-of-object pointer (event handlers).
+    /// tkMethod - method-of-object pointer (event handlers).
     Method(MethodInfo<'a>),
-    /// tkProcedure — first-class procedure reference.
+    /// tkProcedure - first-class procedure reference.
     Procedure(ProcedureInfo<'a>),
-    /// tkLString / tkUString / tkWString — string RTTI with code page.
+    /// tkLString / tkUString / tkWString - string RTTI with code page.
     String(StringInfo<'a>),
-    /// Known Kind but not yet a dedicated decoder — just the header.
+    /// Known Kind but not yet a dedicated decoder - just the header.
     Other(TypeHeader<'a>),
 }
 
@@ -942,7 +942,7 @@ impl<'a> TypeDetail<'a> {
 }
 
 impl<'a> TypeDetail<'a> {
-    /// Dispatcher — decode whichever Kind is stored at `type_info_va`,
+    /// Dispatcher - decode whichever Kind is stored at `type_info_va`,
     /// returning the rich per-Kind variant.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
@@ -979,7 +979,7 @@ impl<'a> TypeDetail<'a> {
         Some(detail)
     }
 
-    /// The `PPTypeInfo` references this record points at — parent types,
+    /// The `PPTypeInfo` references this record points at - parent types,
     /// enumeration base types, set/array element types, record managed-field
     /// types, etc. Each value is a `PPTypeInfo` VA (dereference once to reach
     /// the target `PTypeInfo`). Drives the transitive-closure type walk in
@@ -1141,7 +1141,7 @@ impl<'a> DynArrayInfo<'a> {
         let elem_type_ref_any = read_ptr(data, off, ptr_size)?;
         off = off.checked_add(ptr_size)?;
         let unit_name = read_short_string_at_file(data, off);
-        // Pick whichever pointer resolves — `elem_type_ref_any` is
+        // Pick whichever pointer resolves - `elem_type_ref_any` is
         // emitted on modern Delphi/FPC even for non-managed elements;
         // the managed variant can be null.
         let element_type = if elem_type_ref_any != 0 {
@@ -1194,14 +1194,14 @@ impl<'a> InterfaceTypeInfo<'a> {
     }
 }
 
-/// Method kind — matches Delphi's `TMethodKind` and FPC's mkXxx constants
+/// Method kind - matches Delphi's `TMethodKind` and FPC's mkXxx constants
 /// in `typinfo.pp`. Source: `reference/pythia/pythia/core/structures.py:36-47`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MethodKind {
-    /// `procedure` — no result.
+    /// `procedure` - no result.
     Procedure = 0,
-    /// `function` — has a result value.
+    /// `function` - has a result value.
     Function = 1,
     /// `constructor`.
     Constructor = 2,
@@ -1244,7 +1244,7 @@ impl MethodKind {
 /// One formal parameter of a method-of-object or procedure type.
 #[derive(Debug, Clone, Copy)]
 pub struct MethodParam<'a> {
-    /// `Flags` byte — `pfVar`, `pfConst`, `pfArray`, `pfOut`, `pfResult`, etc.
+    /// `Flags` byte - `pfVar`, `pfConst`, `pfArray`, `pfOut`, `pfResult`, etc.
     /// We expose the raw byte; see Embarcadero DocWiki "TParamFlag".
     pub flags: u8,
     pub(crate) name: &'a [u8],
@@ -1276,7 +1276,7 @@ impl<'a> MethodParam<'a> {
     }
 }
 
-/// `tkMethod` — method-of-object pointer signature.
+/// `tkMethod` - method-of-object pointer signature.
 ///
 /// Example: `TNotifyEvent = procedure(Sender: TObject) of object`.
 ///
@@ -1334,7 +1334,7 @@ impl<'a> SignatureParam<'a> {
     }
 }
 
-/// `tkProcedure` — first-class reference-to-procedure type. Decodes the
+/// `tkProcedure` - first-class reference-to-procedure type. Decodes the
 /// inline `TProcedureSignature` (Delphi 2010+ / FPC); on older binaries that
 /// emit only the header the signature fields are empty.
 #[derive(Debug, Clone)]
@@ -1351,7 +1351,7 @@ pub struct ProcedureInfo<'a> {
     pub result_type: Option<TypeHeader<'a>>,
 }
 
-/// `tkLString` / `tkUString` / `tkWString` — string RTTI record.
+/// `tkLString` / `tkUString` / `tkWString` - string RTTI record.
 ///
 /// Source: `reference/pythia/pythia/core/structures.py:196-202`.
 #[derive(Debug, Clone, Copy)]
@@ -1463,7 +1463,7 @@ fn parse_method_modern_refs<'a>(
         return None;
     }
     // The trailer carries no information when there are no parameters and no
-    // result type, and there's nothing to cross-check it against — so skip it
+    // result type, and there's nothing to cross-check it against - so skip it
     // rather than risk misreading legacy bytes.
     if params.is_empty() && !is_function {
         return None;
@@ -1477,7 +1477,7 @@ fn parse_method_modern_refs<'a>(
     let mut confirmed = 0usize;
     let mut check = |r: u64, expected: &[u8]| -> bool {
         if expected.is_empty() {
-            return true; // unverifiable — must be carried by another match
+            return true; // unverifiable - must be carried by another match
         }
         if TypeHeader::from_pptr(ctx, r, ptr_size, flavor)
             .map(|h| h.name_bytes() == expected)
@@ -1517,7 +1517,7 @@ fn parse_method_modern_refs<'a>(
         refs.push(r);
     }
     if confirmed == 0 {
-        return None; // nothing could be verified — don't trust it
+        return None; // nothing could be verified - don't trust it
     }
     Some((refs, result_type_ref))
 }
@@ -1530,7 +1530,7 @@ impl<'a> ProcedureInfo<'a> {
     ///
     /// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:357-372`
     /// (`TProcedureSignature` / `TProcedureParam`). The signature is strictly
-    /// validated — a `0xFF` flags byte, an implausible parameter count, or a
+    /// validated - a `0xFF` flags byte, an implausible parameter count, or a
     /// parameter type pointer that doesn't resolve yields a header-only
     /// result rather than garbage (older binaries emit no signature).
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
@@ -1648,7 +1648,7 @@ impl<'a> StringInfo<'a> {
         // empirically on modern Delphi the bytes are (u16 elem-size,
         // 4 reserved) but we only need the code page. Read `u16` at
         // +6. If the slice walks off EOF the type record is
-        // truncated — surface a `None` rather than misreporting code
+        // truncated - surface a `None` rather than misreporting code
         // page 0 (which is valid metadata for legacy ANSI strings,
         // so 0 must mean "actually 0").
         let code_page_start = off.checked_add(6)?;
@@ -1662,7 +1662,7 @@ impl<'a> StringInfo<'a> {
 impl<'a> RecordInfo<'a> {
     /// Decode a `tkRecord` record including its managed-field entries.
     ///
-    /// Accepts records with an empty on-disk name — the compiler
+    /// Accepts records with an empty on-disk name - the compiler
     /// emits `vmtInitTable` as a synthetic `tkRecord` with no name
     /// whose sole purpose is to enumerate the host class's managed
     /// fields. [`TypeHeader::from_va`] rejects empty names, so we
@@ -1713,7 +1713,7 @@ impl<'a> RecordInfo<'a> {
                 field_type,
             });
         }
-        // Full (extended) field table — Delphi 2010+ lists every field after
+        // Full (extended) field table - Delphi 2010+ lists every field after
         // the managed-field / operator section. Strictly validated so that
         // pre-2010 Delphi, FPC, and the synthetic (empty-name) init-table
         // record never produce garbage: any implausible field discards the
@@ -1763,7 +1763,7 @@ fn parse_record_fields<'a>(
     for _ in 0..count {
         let type_ref = read_ptr(data, off, ptr_size)?;
         // `FldOffset` is pointer-sized (`MakeCustomWord(addr+wordSize,
-        // wordSize)` in DelphiHelper), not a fixed `u32` — so on 64-bit the
+        // wordSize)` in DelphiHelper), not a fixed `u32` - so on 64-bit the
         // flags / name follow at `2 * ptr_size`, not `ptr_size + 4`.
         let offset = read_ptr(data, off.checked_add(ptr_size)?, ptr_size)? as u32;
         let flags_off = off.checked_add(ptr_size)?.checked_add(ptr_size)?;
@@ -1801,7 +1801,7 @@ fn parse_record_fields<'a>(
 /// pointer to the tkInterface PTypeInfo, so we have to find it by
 /// scanning.
 ///
-/// On Delphi binaries this returns an empty map — Delphi's classic
+/// On Delphi binaries this returns an empty map - Delphi's classic
 /// `tkInterface` doesn't carry a method table. (Modern extended RTTI
 /// does, on a different layout, not yet supported.)
 ///
@@ -1856,7 +1856,7 @@ impl<'a> IntfMethodTable<'a> {
     ///
     /// Returns `None` when the layout doesn't parse cleanly. The
     /// header (`method_count`, `rtti_count`) is recovered even when
-    /// per-method names are absent — `rtti_count == 0xFFFF` means
+    /// per-method names are absent - `rtti_count == 0xFFFF` means
     /// the compiler emitted no per-method records, so
     /// [`Self::entries`] will be empty in that case.
     pub fn from_tkinterface(ctx: &BinaryContext<'a>, tkintf_va: u64) -> Option<Self> {
@@ -1887,7 +1887,7 @@ impl<'a> IntfMethodTable<'a> {
         let prop_table_off = align_to_ptr(after_unit_name, ptr_size, needs_alignment)?;
 
         // TPropData: u16 count, then variable-length entries. We bail
-        // on non-empty published-property tables — interfaces with
+        // on non-empty published-property tables - interfaces with
         // published properties are vanishingly rare, and walking past
         // them needs a flavor-specific TPropInfo decoder we don't
         // duplicate here.
@@ -1909,7 +1909,7 @@ impl<'a> IntfMethodTable<'a> {
         }
 
         // `rtti_count == 0xFFFF` is the documented "no per-method RTTI"
-        // sentinel — the compiler knows the slot count but emitted no
+        // sentinel - the compiler knows the slot count but emitted no
         // metadata for any individual method.
         if rtti_count == u16::MAX || rtti_count == 0 {
             return Some(Self {
@@ -1993,7 +1993,7 @@ impl<'a> IntfMethodTable<'a> {
     /// to [`Self::method_count`] when full RTTI was emitted; `0xFFFF`
     /// when the compiler emitted no per-method records (interfaces
     /// declared without `{$M+}` mode in their source unit). When the
-    /// sentinel is set, [`Self::entries`] returns an empty slice —
+    /// sentinel is set, [`Self::entries`] returns an empty slice -
     /// the vtable still has `method_count` slots, but their names
     /// are not recoverable from this RTTI.
     #[inline]
@@ -2012,7 +2012,7 @@ impl<'a> IntfMethodTable<'a> {
 /// One entry in an FPC `tkInterface` method table.
 ///
 /// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:398-427`
-/// (`TIntfMethodEntry`). We don't decode parameters here — the entry
+/// (`TIntfMethodEntry`). We don't decode parameters here - the entry
 /// is variable-length, and we bail past entries that declare any
 /// parameter so the simple shape stays clean.
 #[derive(Debug, Clone, Copy)]
@@ -2102,7 +2102,7 @@ fn align_to_ptr(off: usize, ptr_size: usize, apply_alignment: bool) -> Option<us
     }
 }
 
-/// Hard cap on FPC interface method-table entries — guards against
+/// Hard cap on FPC interface method-table entries - guards against
 /// adversarially-large `Count` fields.
 const MAX_INTF_METHODS: usize = 1024;
 

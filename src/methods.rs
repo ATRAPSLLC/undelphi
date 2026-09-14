@@ -15,7 +15,7 @@
 //!     Size:     u16           (byte-size of this whole entry, incl. Size)
 //!     CodeAddr: ptr           (4 on 32-bit, 8 on 64-bit)
 //!     Name:     ShortString   (length-prefixed, inline)
-//!     <trailing bytes used by modern Delphi for arg typeinfo — unparsed here>
+//!     <trailing bytes used by modern Delphi for arg typeinfo - unparsed here>
 //! ```
 //!
 //! ## FPC layout
@@ -26,7 +26,7 @@
 //! ```text
 //!   Count: u32                (LongWord, fixed 4 bytes even on 64-bit)
 //!   entries[Count]:
-//!     NamePtr:  PShortString  (ptr — follow for the ShortString body)
+//!     NamePtr:  PShortString  (ptr - follow for the ShortString body)
 //!     CodeAddr: CodePointer
 //! ```
 //!
@@ -111,7 +111,7 @@ impl<'a> MethodEntry<'a> {
 /// entries: a `u16` `ExCount` followed by `ExCount` records of
 /// `{ EntryPtr: ptr; Flags: u16; VirtualIndex: i16 }`. Each `EntryPtr`
 /// points at a `{ Len: u16; CodeAddr: ptr; Name: ShortString; Tail }`
-/// record whose `Tail` carries the full method signature — emitted by
+/// record whose `Tail` carries the full method signature - emitted by
 /// default extended RTTI, *without* requiring `{$METHODINFO ON}`. This is
 /// the primary signature source for Delphi 2010+ binaries.
 ///
@@ -295,7 +295,7 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodE
             let trailer_start = cursor.checked_add(bare)?;
             let trailer_end = cursor.checked_add(size)?;
             // If the entry's declared size walks past EOF, the table is
-            // malformed — surface the parse failure rather than silently
+            // malformed - surface the parse failure rather than silently
             // truncating the trailer to empty.
             data.get(trailer_start..trailer_end)?
         } else {
@@ -315,7 +315,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodEntr
     let base_off = ctx.va_to_file(vmt.method_table)?;
     let data = ctx.data();
     // FPC's `TVmtMethodTable.Count` is `LongWord` (u32) regardless of
-    // pointer width — see `typinfo.pp:455-467`.
+    // pointer width - see `typinfo.pp:455-467`.
     let count = read_u32(data, base_off)? as usize;
     if count == 0 || count > MAX_METHODS_PER_CLASS_FPC {
         return Some(Vec::new());
@@ -333,7 +333,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodEntr
         let Some(name) = read_short_string_at_va(ctx, name_ptr_va) else {
             continue;
         };
-        // FPC's TVmtMethodEntry is fixed-size — no trailer.
+        // FPC's TVmtMethodEntry is fixed-size - no trailer.
         out.push(MethodEntry {
             name,
             code_va,

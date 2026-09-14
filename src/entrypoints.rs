@@ -1,7 +1,7 @@
 //! Aggregated code-entrypoint enumeration.
 //!
 //! Disassembler-driving consumers want a single call that produces every
-//! VA we can confidently label as a function entry point — published
+//! VA we can confidently label as a function entry point - published
 //! methods, virtual-method slots, dynamic-message handlers, interface
 //! getters, property getters/setters/stored functions, attribute
 //! constructors, unit init / finalize procedures.
@@ -64,7 +64,7 @@ pub enum EntrypointKind {
 pub struct CodeEntrypoint<'a> {
     /// Absolute VA. Subtract the image base for an RVA.
     pub va: u64,
-    /// What kind of entry point this is — naming hint.
+    /// What kind of entry point this is - naming hint.
     pub kind: EntrypointKind,
     /// Owning class, when applicable.
     pub class: Option<&'a Class<'a>>,
@@ -120,7 +120,7 @@ impl fmt::Display for EntrypointKind {
 ///
 /// Walks every class's published methods, VMT slots, dynamic-message
 /// slots, interface getters, property getters/setters/stored, plus the
-/// global unit init/finalize table. Produces duplicates across kinds —
+/// global unit init/finalize table. Produces duplicates across kinds -
 /// dedup is the caller's job, since they typically have a kind-priority.
 pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
     let mut out: Vec<CodeEntrypoint<'a>> = Vec::new();
@@ -159,7 +159,7 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
             ));
         }
 
-        // Interfaces — getter and (when known) per-method pointers.
+        // Interfaces - getter and (when known) per-method pointers.
         for entry in bin.interfaces(class) {
             if entry.getter_va != 0 {
                 out.push(CodeEntrypoint::new(

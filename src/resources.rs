@@ -163,9 +163,8 @@ fn read_name(rsrc_bytes: &[u8], off: usize) -> Option<String> {
     let body_bytes = len.checked_mul(2)?;
     let body_end = len_end.checked_add(body_bytes)?;
     let body = rsrc_bytes.get(len_end..body_end)?;
-    let iter = body
-        .chunks_exact(2)
-        .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes));
+    let (pairs, _) = body.as_chunks::<2>();
+    let iter = pairs.iter().copied().map(u16::from_le_bytes);
     Some(char::decode_utf16(iter).filter_map(Result::ok).collect())
 }
 

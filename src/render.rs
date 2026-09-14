@@ -1,7 +1,7 @@
 //! Pretty-print DFM property values against their declared types.
 //!
 //! By itself, [`crate::dfm::DfmValue`] captures the raw on-disk
-//! representation — `Int(2)` for `Align = alBottom`, `Int(7)` for
+//! representation - `Int(2)` for `Align = alBottom`, `Int(7)` for
 //! `BorderIcons = [biSystemMenu, biMinimize, biMaximize, biHelp]`. To
 //! render those values symbolically we need to cross-reference the
 //! declared property type from RTTI. This module provides a small helper
@@ -9,7 +9,7 @@
 //! for a `DfmValue`.
 //!
 //! All string construction allocates. Callers that need to avoid
-//! allocation can use the `DfmValue` fields directly — this helper is
+//! allocation can use the `DfmValue` fields directly - this helper is
 //! for presentation only.
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
 /// Pretty-print a DFM value, using the declared type to resolve
 /// enumeration ordinals and set bitmaps into their symbolic names.
 ///
-/// `detail` is the resolved property type — typically from
+/// `detail` is the resolved property type - typically from
 /// `DelphiBinary::property_type_detail`. When `detail` is `None` or the
 /// type doesn't meaningfully refine the value, the returned string is the
 /// same as a plain `Debug` render of `value`.
@@ -115,12 +115,10 @@ fn default_render(v: &DfmValue<'_>) -> String {
         DfmValue::Currency(c) => format!("{:.4}$", (*c as f64) / 10_000.0),
         DfmValue::String(s) => format!("{:?}", String::from_utf8_lossy(s)),
         DfmValue::Utf16(b) => {
-            // chunks_exact(2) drops a trailing odd byte. Treat each
-            // pair as a fixed-size array to keep the slicing lint
-            // happy; the conversion is infallible.
-            let iter = b
-                .chunks_exact(2)
-                .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes));
+            // as_chunks::<2>() yields fixed-size pairs and drops a
+            // trailing odd byte.
+            let (pairs, _) = b.as_chunks::<2>();
+            let iter = pairs.iter().copied().map(u16::from_le_bytes);
             let decoded: String = char::decode_utf16(iter).filter_map(Result::ok).collect();
             format!("{:?} (utf-16, {} bytes)", decoded, b.len())
         }

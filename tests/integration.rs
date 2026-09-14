@@ -143,7 +143,7 @@ fn heidisql_win64_delphi_12_athens() {
         methods.len()
     );
 
-    // Iteration 3: interface table — TInterfacedObject implements IUnknown.
+    // Iteration 3: interface table - TInterfacedObject implements IUnknown.
     let ti = classes.find_by_name("TInterfacedObject").unwrap();
     let ifaces = bin.interfaces(ti);
     assert_eq!(ifaces.len(), 1);
@@ -411,7 +411,7 @@ fn doublecmd_win32_fpc_322() {
         &["TLCLComponent", "TComponent", "TPersistent", "TObject"],
     );
 
-    // Iteration 3: FPC RTTI unit names (FPC 3.2.2 — Lazarus convention).
+    // Iteration 3: FPC RTTI unit names (FPC 3.2.2 - Lazarus convention).
     let tmain = classes.find_by_name("TfrmMain").unwrap();
     assert_eq!(bin.unit_name(tmain), Some("fMain"));
     // Methods extracted via FPC's PShortString-deref layout.
@@ -432,12 +432,12 @@ fn doublecmd_win32_fpc_322() {
         procs
             .iter()
             .any(|p| p.init_va.is_some() || p.finalize_va.is_some()),
-        "every entry was a no-op — heuristic likely locked onto garbage"
+        "every entry was a no-op - heuristic likely locked onto garbage"
     );
 
     // FPC tkMethod (method-pointer / event types) decode with the FPC param
     // layout (2-byte TParamFlags set, vs Delphi's 1 byte). TNotifyEvent =
-    // procedure(Sender: TObject) of object — FPC emits an explicit hidden
+    // procedure(Sender: TObject) of object - FPC emits an explicit hidden
     // Self parameter, so the source `Sender: TObject` is the second param.
     let notify = bin
         .types()
@@ -476,7 +476,7 @@ fn cheatengine_win64_fpc_304() {
     assert!(bin.edition().is_none());
     assert!(bin.tpf0_count() >= 100);
 
-    // Cheat Engine is FPC Win64 — exercises the 64-bit FPC VMT path with
+    // Cheat Engine is FPC Win64 - exercises the 64-bit FPC VMT path with
     // FPC's `PClass`-style indirect parent references.
     let classes = bin.classes();
     assert!(classes.len() > 500);
@@ -505,12 +505,12 @@ fn heidisql_macos_aarch64_fpc_322() {
     assert_eq!(info.arch, TargetArch::Aarch64);
     assert_eq!(info.os, TargetOs::Darwin);
 
-    // DVCLAL / PACKAGEINFO resources are PE-only — no `.rsrc` section on
+    // DVCLAL / PACKAGEINFO resources are PE-only - no `.rsrc` section on
     // Mach-O. Edition/package_info must be None here, and that is correct.
     assert!(bin.edition().is_none());
     assert!(bin.package_info().is_none());
 
-    // Class-tree assertions — Mach-O path exercises the `__DATA_CONST.__const`
+    // Class-tree assertions - Mach-O path exercises the `__DATA_CONST.__const`
     // scan target added specifically for FPC on macOS.
     let classes = bin.classes();
     assert!(
@@ -703,7 +703,7 @@ fn doublecmd_linux_x86_64_fpc_322() {
     assert_eq!(info.arch, TargetArch::X86_64);
     assert_eq!(info.os, TargetOs::Linux);
 
-    // DVCLAL / PACKAGEINFO are PE-only resources — absent on ELF.
+    // DVCLAL / PACKAGEINFO are PE-only resources - absent on ELF.
     assert!(bin.edition().is_none());
     assert!(bin.package_info().is_none());
 
@@ -825,7 +825,7 @@ fn doublecmd_macos_x86_64_fpc_322() {
 #[test]
 fn heidisql_win64_method_signatures() {
     // Delphi 2010+ emits method signatures by default in the extended
-    // section of the `vmtMethodTable` — name, ordered params (name / type /
+    // section of the `vmtMethodTable` - name, ordered params (name / type /
     // passing mode) and return type. This exercises that walker + decoder.
     let Some(data) = load("heidisql/portable_x64/heidisql.exe") else {
         eprintln!("skipping: sample missing");
@@ -863,7 +863,7 @@ fn heidisql_win64_method_signatures() {
     );
 
     // At least one parameter resolves a (non-Self) type name, and at least
-    // one function resolves a return type — proving PPTypeInfo resolution.
+    // one function resolves a return type - proving PPTypeInfo resolution.
     let mut typed_param = false;
     let mut has_return = false;
     'outer: for c in classes.iter() {
@@ -920,8 +920,8 @@ fn enum_values(bin: &DelphiBinary<'_>, name: &str) -> Option<Vec<String>> {
 #[test]
 fn delphi7_type_closure_recovers_standalone_rtti() {
     // The transitive type closure (`bin.types()`) follows PPTypeInfo pointers
-    // from the class graph to reach standalone RTTI — enums, sets, method
-    // types — that the per-class accessors never surface. No raw scanning.
+    // from the class graph to reach standalone RTTI - enums, sets, method
+    // types - that the per-class accessors never surface. No raw scanning.
     let Some(data) = load("lightalloy/LA.exe") else {
         eprintln!("skipping: sample missing");
         return;
@@ -941,7 +941,7 @@ fn delphi7_type_closure_recovers_standalone_rtti() {
     assert!(enums > 20, "expected many enums, got {enums}");
 
     // A standard VCL enum, recovered with its value names purely by pointer-
-    // following — TScrollStyle isn't a published property type of most forms.
+    // following - TScrollStyle isn't a published property type of most forms.
     assert_eq!(
         enum_values(&bin, "TScrollStyle").as_deref(),
         Some(
@@ -963,7 +963,7 @@ fn heidisql_type_closure_surfaces_standalone_rtti() {
     assert!(types.len() > 2000, "got {}", types.len());
 
     // The point: the closure surfaces a large body of *non-class* standalone
-    // RTTI — enums, sets, records, method types — that no per-class accessor
+    // RTTI - enums, sets, records, method types - that no per-class accessor
     // returns on its own.
     let non_class = types
         .iter()
@@ -992,7 +992,7 @@ fn heidisql_type_closure_surfaces_standalone_rtti() {
     );
 
     // The self-cell pass surfaces types referenced only from code
-    // (`TypeInfo(X)`), which the class-graph closure never reaches — e.g.
+    // (`TypeInfo(X)`), which the class-graph closure never reaches - e.g.
     // System.SysUtils' TSearchRec record.
     assert!(
         types.iter().any(|t| matches!(
@@ -1044,7 +1044,7 @@ fn delphi7_records_have_no_extended_fields() {
 #[test]
 fn method_param_type_refs_resolve() {
     // tkMethod records carry per-parameter PPTypeInfo references (Delphi 7+).
-    // TNotifyEvent = procedure(Sender: TObject) of object — the ref must
+    // TNotifyEvent = procedure(Sender: TObject) of object - the ref must
     // point at the same type the legacy name-based parameter names.
     let Some(data) = load("lightalloy/LA.exe") else {
         eprintln!("skipping: sample missing");
@@ -1091,7 +1091,7 @@ fn procedure_signatures_decode() {
 
 #[test]
 fn fpc_type_closure_works() {
-    // The closure is flavor-agnostic — it works on FPC binaries too.
+    // The closure is flavor-agnostic - it works on FPC binaries too.
     let Some(data) = load("doublecmd/win32/doublecmd/doublecmd.exe") else {
         eprintln!("skipping: sample missing");
         return;

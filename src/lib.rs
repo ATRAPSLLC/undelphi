@@ -15,8 +15,8 @@
 //!   and `tkClass` RTTI records).
 //! - **Published property names, getters, setters, defaults** (the VCL /
 //!   Object Inspector depends on these at runtime).
-//! - **Form definitions** — entire UI trees, including embedded binaries
-//!   (icons, images, scripts) — inside `TPF0` resource streams.
+//! - **Form definitions** - entire UI trees, including embedded binaries
+//!   (icons, images, scripts) - inside `TPF0` resource streams.
 //! - **Package dependency graph** via `PACKAGEINFO`.
 //! - **Compiler version** (Delphi 12 Athens reports itself as
 //!   `Embarcadero Delphi for Win64 compiler version 36.0`; FPC reports as
@@ -31,40 +31,40 @@
 //!
 //! ## Feature overview
 //!
-//! - **Toolchain identification** — Embarcadero Delphi / C++Builder or
+//! - **Toolchain identification** - Embarcadero Delphi / C++Builder or
 //!   Free Pascal / Lazarus; product release name (e.g. `Delphi 12 Athens`);
 //!   DVCLAL edition (Personal / Professional / Enterprise).
-//! - **Container support** — Windows PE32 / PE32+, macOS Mach-O, Linux ELF.
-//! - **Class discovery** — VMT shape-test scanner for both Delphi and FPC
+//! - **Container support** - Windows PE32 / PE32+, macOS Mach-O, Linux ELF.
+//! - **Class discovery** - VMT shape-test scanner for both Delphi and FPC
 //!   layouts on 32-bit and 64-bit, automatic parent-chain resolution,
 //!   indexed by class name and by VMT VA.
-//! - **RTTI decoding** — per-Kind decoders for `tkClass`, `tkEnumeration`,
+//! - **RTTI decoding** - per-Kind decoders for `tkClass`, `tkEnumeration`,
 //!   `tkInteger`, `tkChar`, `tkFloat`, `tkSet`, `tkClassRef`, `tkDynArray`,
 //!   `tkInterface`, `tkRecord`, `tkMethod`, `tkProcedure`, `tkLString` /
 //!   `tkUString` / `tkWString`.
-//! - **Class metadata** — published properties (classic + extended-RTTI with
+//! - **Class metadata** - published properties (classic + extended-RTTI with
 //!   visibility flags), published fields, published methods, virtual method
 //!   pointer table, init (managed-fields) table, dynamic / message
 //!   dispatch table, interface table with GUID and Corba IIDStr.
-//! - **Attributes** — `[attribute]` annotation decoding with constructor
+//! - **Attributes** - `[attribute]` annotation decoding with constructor
 //!   argument extraction (string / integer / raw bytes).
-//! - **Form streams** — full TPF0 / TPF1 parser with the complete
+//! - **Form streams** - full TPF0 / TPF1 parser with the complete
 //!   `TValueType` set; recursive component tree; symbolic value rendering
 //!   against declared RTTI types (e.g. `Align = alClient` instead of
 //!   `Align = 2`).
-//! - **Package metadata** — `DVCLAL` + `PACKAGEINFO` resource decoders; PE
+//! - **Package metadata** - `DVCLAL` + `PACKAGEINFO` resource decoders; PE
 //!   resource directory walker; Free-Pascal internal-resources
 //!   (`fpc.resources` / `.fpc.resources`) tree walker.
-//! - **Cross-references** — interface implementors, DFM class
+//! - **Cross-references** - interface implementors, DFM class
 //!   instantiations, event-handler bindings, per-unit aggregate stats,
 //!   external-parent reports.
-//! - **Instance memory layout** — byte-by-byte reconstruction with
+//! - **Instance memory layout** - byte-by-byte reconstruction with
 //!   managed-field markers and gap-fill.
 //!
 //! ## Virtual addresses: code vs data, and RVA conversion
 //!
 //! Every `…_va` field this crate exposes is an **absolute virtual
-//! address** — the value that would appear in the loaded image. PE
+//! address** - the value that would appear in the loaded image. PE
 //! consumers operating in RVA space must subtract the image base.
 //!
 //! Fields fall into two categories:
@@ -79,7 +79,7 @@
 //! | [`extrtti::AttributeEntry::attr_ctor`](crate::extrtti::AttributeEntry::attr_ctor) | code |
 //! | [`extrtti::AttributeEntry::attr_type_ref`](crate::extrtti::AttributeEntry::attr_type_ref) | data (`PPTypeInfo`) |
 //! | [`Access::value`](crate::properties::Access::value) when `kind == AccessKind::Static` | code |
-//! | [`Access::value`](crate::properties::Access::value) when `kind == AccessKind::Virtual` | **VMT slot index** — *not* a VA. Resolve with [`Access::resolve`](crate::properties::Access::resolve) |
+//! | [`Access::value`](crate::properties::Access::value) when `kind == AccessKind::Virtual` | **VMT slot index** - *not* a VA. Resolve with [`Access::resolve`](crate::properties::Access::resolve) |
 //! | [`Class::vmt_va`](crate::classes::Class::vmt_va) | data (VMT base) |
 //! | [`vtable::VirtualMethodEntry::slot_va`](crate::vtable::VirtualMethodEntry::slot_va) | data (slot storage in VMT) |
 //! | [`Property::prop_type_ref`](crate::properties::Property::prop_type_ref) | data (`PPTypeInfo`) |
@@ -163,7 +163,7 @@ pub mod xref;
 pub(crate) mod util;
 
 /// Emit a warning event when the `tracing` feature is enabled. No-op
-/// otherwise — keeps `tracing` strictly opt-in.
+/// otherwise - keeps `tracing` strictly opt-in.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __undelphi_trace_warn {
@@ -233,7 +233,7 @@ pub struct AttributeWithStringArg<'a> {
 /// Why [`DelphiBinary::parse`] failed.
 ///
 /// Use this to decide log severity. `NotRecognized` is the common, quiet
-/// case — non-Delphi binaries land here. The other variants represent
+/// case - non-Delphi binaries land here. The other variants represent
 /// actually broken or unfamiliar input and are usually worth surfacing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -306,13 +306,13 @@ impl<'a> DelphiBinary<'a> {
     /// A match at any level above `Low` succeeds. Otherwise the call returns
     /// a [`ParseError`] describing why detection failed:
     ///
-    /// - [`ParseError::NotRecognized`] — the input is a valid container but
+    /// - [`ParseError::NotRecognized`] - the input is a valid container but
     ///   carries no Delphi/FPC markers. Expected on non-Delphi binaries; safe
     ///   to swallow without logging.
-    /// - [`ParseError::TruncatedContainer`] — a recognised container magic is
+    /// - [`ParseError::TruncatedContainer`] - a recognised container magic is
     ///   present but goblin failed to walk the headers (truncated PE / ELF /
     ///   Mach-O). Worth logging.
-    /// - [`ParseError::UnrecognizedFormat`] — the input has no known
+    /// - [`ParseError::UnrecognizedFormat`] - the input has no known
     ///   container magic at all. Worth logging if you expected an executable.
     pub fn parse(data: &'a [u8]) -> Result<Self, ParseError> {
         let ctx = BinaryContext::new(data);
@@ -334,7 +334,7 @@ impl<'a> DelphiBinary<'a> {
         }
 
         let classes = ClassSet::from_ctx(&ctx);
-        // Finding any VMTs is independent structural proof — elevate
+        // Finding any VMTs is independent structural proof - elevate
         // confidence so that stripped FPC/Mach-O binaries (which lack
         // DVCLAL / PACKAGEINFO / build-strings) can still be detected.
         if !classes.is_empty() && confidence < Confidence::Medium {
@@ -438,7 +438,7 @@ impl<'a> DelphiBinary<'a> {
         self.package_info.as_ref()
     }
 
-    /// Number of `TPF0` magic occurrences — a proxy for the number of form
+    /// Number of `TPF0` magic occurrences - a proxy for the number of form
     /// resources embedded in the binary.
     #[inline]
     pub fn tpf0_count(&self) -> usize {
@@ -504,7 +504,7 @@ impl<'a> DelphiBinary<'a> {
     /// Decodes two Delphi sources: the published-method trailer
     /// (`{$METHODINFO ON}` binaries, rare) and the **extended-method
     /// section** of the `vmtMethodTable` (default extended RTTI on Delphi
-    /// 2010+ — the primary source). Pre-2010 Delphi and FPC carry neither
+    /// 2010+ - the primary source). Pre-2010 Delphi and FPC carry neither
     /// and report [`Absent`](signatures::SignatureReport::Absent); the FPC
     /// `TVmtMethodExTable` is a later iteration.
     pub fn method_signatures(&self, class: &Class<'a>) -> signatures::SignatureReport<'a> {
@@ -570,7 +570,7 @@ impl<'a> DelphiBinary<'a> {
     /// Slot count + code VAs come from a vtable walk that terminates
     /// at the first slot that doesn't contain a plausible code VA
     /// (zero, unmapped, or outside the binary's `.text` / `__text` /
-    /// `CODE` section) — works on both Delphi and FPC, including
+    /// `CODE` section) - works on both Delphi and FPC, including
     /// stripped binaries.
     ///
     /// Method *names* come from a binary-wide index of FPC
@@ -628,7 +628,7 @@ impl<'a> DelphiBinary<'a> {
         vtable::VirtualMethodEntry::iter(&self.ctx, &class.vmt, bound)
     }
 
-    /// Decode the class's init (managed-fields) table — the list of
+    /// Decode the class's init (managed-fields) table - the list of
     /// instance offsets the runtime needs to refcount-manage.
     pub fn init_table(&self, class: &Class<'a>) -> Option<rtti::RecordInfo<'a>> {
         rtti::RecordInfo::from_init_table(&self.ctx, &class.vmt)
@@ -640,7 +640,7 @@ impl<'a> DelphiBinary<'a> {
         vmttables::DynamicSlot::iter(&self.ctx, &class.vmt)
     }
 
-    /// Walk the extended-RTTI property table for `class` — includes
+    /// Walk the extended-RTTI property table for `class` - includes
     /// non-published members (private / protected / public) with their
     /// visibility flags and attached attribute bytes.
     pub fn extended_properties(&self, class: &Class<'a>) -> Vec<extrtti::ExtendedProperty<'a>> {
@@ -660,14 +660,14 @@ impl<'a> DelphiBinary<'a> {
     /// per-unit init/finalize calls directly into the entry-point
     /// startup sequence rather than emitting a discoverable table, so
     /// recovering them statically would require disassembly of the
-    /// program entry point — outside this crate's scope. Delphi
+    /// program entry point - outside this crate's scope. Delphi
     /// consumers that need the unit *list* (without VAs) can read it
     /// from [`DelphiBinary::package_info`].
     pub fn unit_init_procs(&self) -> Vec<initfini::UnitInitProc<'a>> {
         initfini::iter_unit_init_procs(&self.ctx)
     }
 
-    /// Aggregate every code address this crate can confidently label —
+    /// Aggregate every code address this crate can confidently label -
     /// published methods, virtual-method slots, dynamic-message handlers,
     /// interface getters and methods, property accessors (with
     /// `AccessKind::Virtual` slots resolved to code VAs), attribute
@@ -698,7 +698,7 @@ impl<'a> DelphiBinary<'a> {
     ///   annotations: returns the decoded entries.
     /// - Older Delphi, classes compiled with `{$RTTI EXPLICIT}`
     ///   suppression, or FPC < 3.3 (no `PROVIDE_ATTR_TABLE`): returns
-    ///   an empty vector — the trailer either isn't there or has a
+    ///   an empty vector - the trailer either isn't there or has a
     ///   shape we don't recognise.
     /// - Classes with no attributes: returns an empty vector.
     pub fn class_attributes(&self, class: &Class<'a>) -> Vec<extrtti::AttributeEntry<'a>> {
@@ -859,7 +859,7 @@ impl<'a> DelphiBinary<'a> {
 
     /// Enumerate every RTTI type record reachable by following `PPTypeInfo`
     /// pointers from the class graph and the published property / field type
-    /// references — a transitive closure over the binary's type graph, with
+    /// references - a transitive closure over the binary's type graph, with
     /// **no raw scanning**.
     ///
     /// This surfaces types the per-class accessors never reach on their own:
@@ -871,9 +871,9 @@ impl<'a> DelphiBinary<'a> {
     /// On Delphi binaries a second, **self-cell pass** then surfaces types the
     /// compiler emits but references only from *code* (`TypeInfo(X)`), which no
     /// data-pointer walk can reach. Every Delphi `PTypeInfo` record is preceded
-    /// by a self-referencing `PPTypeInfo` cell (`va - ptr_size` points at `va`)
-    /// — the same structural signature the VMT scanner uses for `vmtSelfPtr` —
-    /// so a pointer-aligned pass over the read-only sections recovers them with
+    /// by a self-referencing `PPTypeInfo` cell (`va - ptr_size` points at `va`),
+    /// the same structural signature the VMT scanner uses for `vmtSelfPtr`, so
+    /// a pointer-aligned pass over the read-only sections recovers them with
     /// negligible false-positive risk. FPC does not emit these cells, so the
     /// closure alone covers FPC. Together these reach ~97 % of every
     /// `PTypeInfo` referenced anywhere in a Delphi image (HeidiSQL 12: ~6 600
@@ -881,7 +881,7 @@ impl<'a> DelphiBinary<'a> {
     ///
     /// Results are deduplicated by `PTypeInfo` VA and bounded by
     /// [`crate::limits::MAX_RTTI_TYPES`]. Match on the [`rtti::TypeDetail`]
-    /// variant for kind-specific views — e.g. collect every
+    /// variant for kind-specific views - e.g. collect every
     /// [`rtti::TypeDetail::Enumeration`] for the binary's enum dictionary.
     pub fn types(&self) -> Vec<rtti::TypeDetail<'a>> {
         let classes = self.classes();
@@ -965,7 +965,7 @@ impl<'a> DelphiBinary<'a> {
         // immediately preceded by a self-referencing `PPTypeInfo` cell:
         // `va - ptr_size` holds a pointer to `va`. This is the direct analogue
         // of the `vmtSelfPtr` heuristic the VMT scanner uses, and a structural
-        // signature — not a magic-byte guess — because a random pointer-aligned
+        // signature - not a magic-byte guess - because a random pointer-aligned
         // slot points at exactly `itself + ptr_size` with negligible
         // probability, and the target must additionally decode as a valid type
         // record. Scanning these cells surfaces types the compiler emits but
@@ -1059,7 +1059,7 @@ impl<'a> DelphiBinary<'a> {
         }
 
         // 3. Last-resort raw magic-byte scan. Only when the structured
-        //    passes above found nothing — stripped or unconventionally
+        //    passes above found nothing - stripped or unconventionally
         //    packaged binaries whose form streams aren't reachable through
         //    the PE resource directory or the FPC internal-resources tree,
         //    but whose `TPF0`/`TPF1` bytes survive verbatim in the image
@@ -1105,7 +1105,7 @@ impl<'a> DelphiBinary<'a> {
 
     /// Walk every parsed form and surface every embedded `vaBinary` blob,
     /// classified by magic bytes (PNG / JPEG / ZIP / PE / Mach-O / ICO /
-    /// BMP / etc. — see [`blobs::BlobKind`]).
+    /// BMP / etc. - see [`blobs::BlobKind`]).
     ///
     /// Useful for malware triage: every blob carries the form resource it
     /// came from, the dotted path of the component property that holds it,

@@ -13,13 +13,13 @@
 //! fields. Decoding it is a straight reuse of
 //! [`crate::rtti::RecordInfo::from_va`].
 //!
-//! Source: FPC `rtl/inc/rtti.inc` — `InitializeArray` / `FinalizeArray`.
+//! Source: FPC `rtl/inc/rtti.inc` - `InitializeArray` / `FinalizeArray`.
 //!
 //! ## Dynamic-dispatch table (`vmtDynamicTable`)
 //!
 //! Dynamic methods are declared with `dynamic;` or `message <ID>;` and
 //! their dispatch goes through a separate lookup table rather than the
-//! virtual method pointer array — the point being that derived classes
+//! virtual method pointer array - the point being that derived classes
 //! don't grow the VMT for every dynamic method.
 //!
 //! On-disk layout (both Delphi and FPC):
@@ -45,7 +45,7 @@ use crate::{
 };
 
 impl<'a> RecordInfo<'a> {
-    /// Decode the class's init (managed-fields) table — the
+    /// Decode the class's init (managed-fields) table - the
     /// `vmtInitTable` synthetic record that enumerates instance
     /// offsets the runtime needs to refcount-manage. Returns `None`
     /// when `vmtInitTable` is null or the record can't be decoded.

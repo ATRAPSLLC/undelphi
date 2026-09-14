@@ -28,7 +28,7 @@
 //!
 //! - The outer `Flags` is a bitfield of `pfXxx` package-level flags
 //!   (designtime / runtime / weak-packaging etc.). The individual bit
-//!   definitions are not yet documented here — this iteration only surfaces
+//!   definitions are not yet documented here - this iteration only surfaces
 //!   the value as-is.
 //! - The per-unit `Flags` byte carries `ufMainUnit`, `ufPackageUnit`,
 //!   `ufWeakUnit`, `ufImplicitUnit`, etc.
@@ -72,13 +72,13 @@ pub struct ContainedUnit<'a> {
 /// Parse a PACKAGEINFO resource body.
 ///
 /// Returns `None` on any structural error: truncation, non-ASCII name, or
-/// impossible count. The parser deliberately does not allocate for strings —
+/// impossible count. The parser deliberately does not allocate for strings -
 /// every `name` is a slice of the input buffer.
 pub fn parse<'a>(raw: &'a [u8]) -> Option<PackageInfo<'a>> {
     let mut cur = Cursor::new(raw);
     let flags = cur.read_u32()?;
     let requires_count = cur.read_u32()? as usize;
-    // Plausibility guard — a resource with millions of entries is garbage.
+    // Plausibility guard - a resource with millions of entries is garbage.
     if requires_count > 65_536 {
         return None;
     }

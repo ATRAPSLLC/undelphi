@@ -29,7 +29,7 @@ fn load(rel: &str) -> Option<Vec<u8>> {
 }
 
 /// Assert the exact RTTI we expect from `known.pas`, for one compiled
-/// variant. Shared between the win32 and win64 fixtures — the extracted
+/// variant. Shared between the win32 and win64 fixtures - the extracted
 /// model must be identical across pointer widths.
 fn assert_known_rtti(data: &[u8]) {
     let bin = DelphiBinary::parse(data).expect("should parse as FPC");
@@ -40,7 +40,7 @@ fn assert_known_rtti(data: &[u8]) {
 
     let classes = bin.classes();
 
-    // TShape : TPersistent — three published properties, exact types.
+    // TShape : TPersistent - three published properties, exact types.
     let tshape = classes.find_by_name("TShape").expect("TShape");
     assert_eq!(
         classes.ancestors(tshape).next().map(|a| a.name()),
@@ -66,7 +66,7 @@ fn assert_known_rtti(data: &[u8]) {
         "TShape published properties"
     );
 
-    // TButton : TShape — two properties + a published method.
+    // TButton : TShape - two properties + a published method.
     let tbutton = classes.find_by_name("TButton").expect("TButton");
     assert_eq!(
         classes.ancestors(tbutton).next().map(|a| a.name()),
@@ -93,7 +93,7 @@ fn assert_known_rtti(data: &[u8]) {
     let btn_methods: Vec<&str> = bin.methods(tbutton).iter().map(|m| m.name()).collect();
     assert_eq!(btn_methods, vec!["Click"], "TButton published methods");
 
-    // tkEnumeration — exact value names, declaration order.
+    // tkEnumeration - exact value names, declaration order.
     let tcolor = bin
         .types()
         .into_iter()
@@ -113,7 +113,7 @@ fn assert_known_rtti(data: &[u8]) {
         "TColor values"
     );
 
-    // tkMethod — the event signature, exactly (FPC emits an explicit hidden
+    // tkMethod - the event signature, exactly (FPC emits an explicit hidden
     // Self as the first parameter).
     let event = bin
         .types()
@@ -159,7 +159,7 @@ fn known_rtti_fpc_win64() {
 
 /// FPC 3.0.4 (the `cheatengine`-era version) differs from 3.2.2: classes,
 /// ancestry, and published methods decode identically, but published
-/// **property types** don't resolve — the 3.0.4 `TPropInfo` layout differs
+/// **property types** don't resolve - the 3.0.4 `TPropInfo` layout differs
 /// from 3.2.2 (the `prop_type_ref` reads a non-null but non-resolving VA).
 /// This test pins the version-stable subset and documents the difference;
 /// fixing 3.0.4 property-type resolution is tracked in `TODO.md`.

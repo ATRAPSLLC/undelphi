@@ -26,7 +26,7 @@
 //!
 //! prop := prop_name:ShortString  value_type:u8  value
 //!
-//! value depends on value_type — see [`TValueType`] below.
+//! value depends on value_type - see [`TValueType`] below.
 //! ```
 //!
 //! ShortString means one length byte followed by `length` bytes. Length 0
@@ -37,7 +37,7 @@
 //!
 //! Every `&[u8]` held by the returned types is a slice into the caller's
 //! resource buffer. Names, string literals, and embedded binary blobs
-//! never get copied — the parser only allocates the result `Vec`s and
+//! never get copied - the parser only allocates the result `Vec`s and
 //! the recursive `DfmObject` tree itself.
 
 use std::{borrow::Cow, str};
@@ -45,75 +45,75 @@ use std::{borrow::Cow, str};
 /// TPF0 signature (first four bytes of every binary DFM/FMX/LFM/XFM stream).
 pub const TPF0_MAGIC: &[u8; 4] = b"TPF0";
 
-/// TPF1 — newer variant carrying unit-qualified class names (`UnitName.ClassName`).
+/// TPF1 - newer variant carrying unit-qualified class names (`UnitName.ClassName`).
 pub const TPF1_MAGIC: &[u8; 4] = b"TPF1";
 
 /// Stream-level form variant. Does *not* identify the toolchain that
-/// produced the form (Delphi vs Lazarus vs Kylix) — that needs the
+/// produced the form (Delphi vs Lazarus vs Kylix) - that needs the
 /// compiler family from [`crate::DelphiBinary::compiler_kind`]. Captures
 /// only the magic header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FormFlavor {
-    /// `TPF0` — class names are bare (e.g. `TButton`).
+    /// `TPF0` - class names are bare (e.g. `TButton`).
     Tpf0,
-    /// `TPF1` — class names are unit-qualified (e.g. `Vcl.StdCtrls.TButton`).
+    /// `TPF1` - class names are unit-qualified (e.g. `Vcl.StdCtrls.TButton`).
     Tpf1,
 }
 
-/// Binary stream-filer value types — verbatim from FPC
+/// Binary stream-filer value types - verbatim from FPC
 /// `rtl/objpas/classes/classesh.inc:1690-1693`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ValueType {
-    /// `0` — null value / list terminator / property-name terminator.
+    /// `0` - null value / list terminator / property-name terminator.
     Null = 0,
-    /// `1` — nested list. Subsequent values until a `vaNull` byte.
+    /// `1` - nested list. Subsequent values until a `vaNull` byte.
     List = 1,
-    /// `2` — signed 8-bit integer.
+    /// `2` - signed 8-bit integer.
     Int8 = 2,
-    /// `3` — signed 16-bit integer.
+    /// `3` - signed 16-bit integer.
     Int16 = 3,
-    /// `4` — signed 32-bit integer.
+    /// `4` - signed 32-bit integer.
     Int32 = 4,
-    /// `5` — 10-byte Extended float.
+    /// `5` - 10-byte Extended float.
     Extended = 5,
-    /// `6` — ShortString (byte length + body).
+    /// `6` - ShortString (byte length + body).
     String = 6,
-    /// `7` — identifier (same on-disk shape as `String`).
+    /// `7` - identifier (same on-disk shape as `String`).
     Ident = 7,
-    /// `8` — boolean false (0 bytes).
+    /// `8` - boolean false (0 bytes).
     False = 8,
-    /// `9` — boolean true (0 bytes).
+    /// `9` - boolean true (0 bytes).
     True = 9,
-    /// `10` — binary blob (`u32` length + bytes).
+    /// `10` - binary blob (`u32` length + bytes).
     Binary = 10,
-    /// `11` — set (sequence of identifier ShortStrings terminated by an empty one).
+    /// `11` - set (sequence of identifier ShortStrings terminated by an empty one).
     Set = 11,
-    /// `12` — `AnsiString` literal (`u32` length + bytes).
+    /// `12` - `AnsiString` literal (`u32` length + bytes).
     LString = 12,
-    /// `13` — `nil` sentinel (0 bytes).
+    /// `13` - `nil` sentinel (0 bytes).
     Nil = 13,
-    /// `14` — collection (sequence of property lists terminated by `vaNull`).
+    /// `14` - collection (sequence of property lists terminated by `vaNull`).
     Collection = 14,
-    /// `15` — 4-byte `Single` float.
+    /// `15` - 4-byte `Single` float.
     Single = 15,
-    /// `16` — 8-byte `Currency` (Int64 × 10_000).
+    /// `16` - 8-byte `Currency` (Int64 × 10_000).
     Currency = 16,
-    /// `17` — 8-byte `TDateTime` (double-precision float).
+    /// `17` - 8-byte `TDateTime` (double-precision float).
     Date = 17,
-    /// `18` — `WideString` (`u32` length + `length × 2` UTF-16 bytes).
+    /// `18` - `WideString` (`u32` length + `length × 2` UTF-16 bytes).
     WString = 18,
-    /// `19` — signed 64-bit integer.
+    /// `19` - signed 64-bit integer.
     Int64 = 19,
-    /// `20` — UTF-8 string (`u32` length + bytes).
+    /// `20` - UTF-8 string (`u32` length + bytes).
     Utf8String = 20,
-    /// `21` — `UnicodeString` (`u32` length + `length × 2` UTF-16 bytes).
+    /// `21` - `UnicodeString` (`u32` length + `length × 2` UTF-16 bytes).
     UString = 21,
-    /// `22` — unsigned 64-bit integer.
+    /// `22` - unsigned 64-bit integer.
     QWord = 22,
-    /// `23` — 8-byte `Double`.
+    /// `23` - 8-byte `Double`.
     Double = 23,
-    /// Any byte outside the documented range — graceful fallback instead of panic.
+    /// Any byte outside the documented range - graceful fallback instead of panic.
     Unknown = 0xff,
 }
 
@@ -312,9 +312,9 @@ impl<'a> DfmProperty<'a> {
 /// Decoded value of a DFM property.
 #[derive(Debug, Clone)]
 pub enum DfmValue<'a> {
-    /// `vaNull` — no value.
+    /// `vaNull` - no value.
     Null,
-    /// `vaNil` — nil pointer sentinel.
+    /// `vaNil` - nil pointer sentinel.
     Nil,
     /// `vaFalse` / `vaTrue`.
     Bool(bool),
@@ -328,26 +328,26 @@ pub enum DfmValue<'a> {
     Single(f32),
     /// `vaDouble` / `vaDate` (both are 8-byte doubles).
     Double(f64),
-    /// `vaExtended` — 10-byte Intel extended. Stored as raw bytes; decoding
+    /// `vaExtended` - 10-byte Intel extended. Stored as raw bytes; decoding
     /// to `f64` would lose precision.
     Extended([u8; 10]),
-    /// `vaCurrency` — `Int64` scaled by 10 000.
+    /// `vaCurrency` - `Int64` scaled by 10 000.
     Currency(i64),
-    /// `vaString` / `vaIdent` / `vaLString` / `vaUtf8String` — byte slice
+    /// `vaString` / `vaIdent` / `vaLString` / `vaUtf8String` - byte slice
     /// into the buffer.
     String(&'a [u8]),
-    /// `vaWString` / `vaUString` — raw UTF-16LE bytes (2-byte units), caller
+    /// `vaWString` / `vaUString` - raw UTF-16LE bytes (2-byte units), caller
     /// can decode if needed.
     Utf16(&'a [u8]),
-    /// `vaBinary` — arbitrary bytes.
+    /// `vaBinary` - arbitrary bytes.
     Binary(&'a [u8]),
-    /// `vaSet` — a set represented as the enabled identifier names.
+    /// `vaSet` - a set represented as the enabled identifier names.
     Set(Vec<&'a [u8]>),
-    /// `vaList` — list of values.
+    /// `vaList` - list of values.
     List(Vec<DfmValue<'a>>),
-    /// `vaCollection` — list of property-bag items, each a `Vec<DfmProperty>`.
+    /// `vaCollection` - list of property-bag items, each a `Vec<DfmProperty>`.
     Collection(Vec<Vec<DfmProperty<'a>>>),
-    /// Unknown tag byte — no further bytes are consumed; recorded for diagnostics.
+    /// Unknown tag byte - no further bytes are consumed; recorded for diagnostics.
     Unknown {
         /// Raw tag byte.
         tag: u8,
@@ -392,10 +392,8 @@ impl<'a> DfmValue<'a> {
         match self {
             DfmValue::String(b) => Some(String::from_utf8_lossy(b)),
             DfmValue::Utf16(b) => {
-                let units: Vec<u16> = b
-                    .chunks_exact(2)
-                    .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
-                    .collect();
+                let (pairs, _) = b.as_chunks::<2>();
+                let units: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
                 Some(Cow::Owned(String::from_utf16_lossy(&units)))
             }
             _ => None,
@@ -409,13 +407,11 @@ impl<'a> DfmValue<'a> {
         match self {
             DfmValue::String(b) => core::str::from_utf8(b).ok().map(Cow::Borrowed),
             DfmValue::Utf16(b) => {
-                let chunks = b.chunks_exact(2);
-                if !chunks.remainder().is_empty() {
+                let (pairs, rest) = b.as_chunks::<2>();
+                if !rest.is_empty() {
                     return None;
                 }
-                let units: Vec<u16> = chunks
-                    .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
-                    .collect();
+                let units: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
                 String::from_utf16(&units).ok().map(Cow::Owned)
             }
             _ => None,
@@ -441,7 +437,7 @@ impl<'a> DfmValue<'a> {
 /// best-effort `f64`. Lossy.
 ///
 /// Layout: bytes 0..8 are the mantissa (with the integer bit explicit at
-/// position 63 — *not* an implicit-bit format like `f64`). Bytes 8..10
+/// position 63 - *not* an implicit-bit format like `f64`). Bytes 8..10
 /// hold the 15-bit biased exponent (bias 16383) plus a sign bit.
 fn extended_to_f64(b: [u8; 10]) -> f64 {
     let mantissa = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
@@ -540,8 +536,8 @@ impl<'a> DfmObject<'a> {
 /// fallback for stripped / packed binaries whose form streams aren't
 /// reachable through the structured PE-resource or FPC-resource passes.
 /// Every four-byte magic hit is validated by [`DfmObject::parse`];
-/// coincidental matches that don't decode — or that decode without a class
-/// name — are discarded. At most `max` streams are returned, which bounds
+/// coincidental matches that don't decode - or that decode without a class
+/// name - are discarded. At most `max` streams are returned, which bounds
 /// the work on a pathological input whose bytes are dense in magic
 /// sequences (see [`crate::limits::MAX_FORMS_RAW_SCAN`]).
 ///
@@ -555,7 +551,7 @@ pub(crate) fn scan_streams(data: &[u8], max: usize) -> Vec<(usize, DfmObject<'_>
             break;
         }
         let Some(window) = data.get(i..i.saturating_add(4)) else {
-            // Fewer than four bytes remain — no further magic possible.
+            // Fewer than four bytes remain - no further magic possible.
             break;
         };
         if window != TPF0_MAGIC && window != TPF1_MAGIC {
@@ -657,7 +653,7 @@ impl<'a> Cursor<'a> {
 ///
 /// The form stream is untrusted input from the analyzed binary, and both the
 /// `read_object` ⇄ `read_children` cycle and `read_value`'s list arm recursed
-/// with no bound — one nesting byte bought one stack frame. Real Delphi forms
+/// with no bound - one nesting byte bought one stack frame. Real Delphi forms
 /// nest a handful of levels.
 const MAX_DFM_DEPTH: usize = 64;
 
@@ -760,7 +756,7 @@ fn read_children<'a>(
     loop {
         // Peek to detect the empty-class-name terminator. Because children may
         // carry a prefix byte, we look at the next thing the child reader
-        // would see — a prefix, or a ShortString length.
+        // would see - a prefix, or a ShortString length.
         //
         // The cleanest termination rule: if the next byte is 0, it's an
         // empty ShortString that terminates the child list. Consume it.
@@ -1118,7 +1114,7 @@ mod tests {
         s.extend_from_slice(b"hi");
         s.push(0); // empty prop name terminates item 2
 
-        s.push(0); // outer vaNull — ends the collection
+        s.push(0); // outer vaNull - ends the collection
 
         s.push(0); // end of root props
         s.push(0); // end of root children
@@ -1151,7 +1147,7 @@ mod tests {
         s.push(1);
         s.extend_from_slice(b"P");
         s.push(ValueType::Collection as u8);
-        // Missing vaList here — go straight into a property
+        // Missing vaList here - go straight into a property
         s.push(5);
         s.extend_from_slice(b"Width");
         s.push(ValueType::Int8 as u8);
@@ -1215,7 +1211,7 @@ mod tests {
     /// Lock the TPF0 `TValueType` byte ordering against the authoritative
     /// FPC declaration in
     /// `reference/fpc-source/rtl/objpas/classes/classesh.inc:1690-1693`.
-    /// A drift here would silently misdecode every form stream — every
+    /// A drift here would silently misdecode every form stream - every
     /// component property would land on the wrong arm of `read_value`.
     #[test]
     fn value_type_bytes_match_fpc_classesh_inc() {

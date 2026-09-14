@@ -1,7 +1,7 @@
 //! Virtual-method-table function-pointer array decoder.
 //!
 //! A class's VMT header is followed by an array of `pointer_size` function
-//! pointers — one per user-declared virtual method slot. The slot count is
+//! pointers - one per user-declared virtual method slot. The slot count is
 //! not stored anywhere explicitly; the canonical way to bound it is "up
 //! to the next class's VMT base". ESET's `DelphiHelper` and `pythia` both
 //! derive the count this way.
@@ -12,13 +12,13 @@
 //!
 //! 1. Take the starting VA as `C.self_ptr` (the header's `vmtSelfPtr`
 //!    target, which *is* the first slot of the virtual method pointer
-//!    array — see `reference/pythia/pythia/README.md:44-48`).
+//!    array - see `reference/pythia/pythia/README.md:44-48`).
 //! 2. Take the ending VA as the smallest VMT-base VA strictly greater than
 //!    `C.self_ptr` across all discovered classes (when one exists). If no
 //!    class follows, clamp to a conservative 2 KiB budget.
 //! 3. Walk pointer-sized slots until the end, reading each as a code
 //!    address. Stop early if a slot is zero or doesn't point into a
-//!    readable segment — that typically marks a RTTI/data fragment we
+//!    readable segment - that typically marks a RTTI/data fragment we
 //!    shouldn't cross into.
 //!
 //! ## Allocation note
@@ -112,14 +112,14 @@ impl VirtualMethodEntry {
     }
 
     /// Compute the tightest VA upper-bound for a class's
-    /// virtual-method array against `set` — the next class's VMT base
+    /// virtual-method array against `set` - the next class's VMT base
     /// (or the `self_ptr` that follows this one), whichever is closer.
     pub fn upper_bound_for(set: &ClassSet<'_>, vmt: &Vmt<'_>) -> Option<u64> {
         let mut best: Option<u64> = None;
         for c in set.iter() {
             // The next VMT header we could bump into is some class's
             // `va`. Also the `self_ptr` target of earlier classes can
-            // sit between our `self_ptr` and the next VMT header — use
+            // sit between our `self_ptr` and the next VMT header - use
             // whichever is closer.
             let candidates = [c.vmt.va, c.vmt.self_ptr];
             for &va in &candidates {

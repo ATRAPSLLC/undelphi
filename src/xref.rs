@@ -4,7 +4,7 @@
 //! implement `IUnknown`?" or "which forms instantiate a `TButton`?" by
 //! walking the `ClassSet`, `interfaces(...)`, and parsed-DFM tree.
 //!
-//! These views are built on-demand from existing data — no extra binary
+//! These views are built on-demand from existing data - no extra binary
 //! scanning required. They allocate, which is the point: returning owned
 //! maps keyed by GUID or class-name is much more useful than forcing
 //! callers to re-walk the corpus.
@@ -84,7 +84,7 @@ pub fn unit_stats(bin: &DelphiBinary<'_>) -> Vec<UnitStats> {
             name: unit.clone(),
             ..Default::default()
         });
-        // Saturating arithmetic — class counts can never realistically
+        // Saturating arithmetic - class counts can never realistically
         // approach `usize::MAX`, but the lint discipline is universal.
         entry.classes = entry.classes.saturating_add(1);
         entry.fields = entry.fields.saturating_add(bin.fields(c).len());
@@ -101,7 +101,7 @@ pub fn unit_stats(bin: &DelphiBinary<'_>) -> Vec<UnitStats> {
 }
 
 /// A class whose `vmtParent` pointer doesn't resolve inside the scanned
-/// image — it inherits from a class exported by an external package.
+/// image - it inherits from a class exported by an external package.
 #[derive(Debug, Clone)]
 pub struct ExternalClassRef {
     /// Name of the local class that inherits externally.
@@ -113,7 +113,7 @@ pub struct ExternalClassRef {
 }
 
 /// List every class whose parent pointer isn't in our class set (root
-/// classes excluded — those legitimately have no parent).
+/// classes excluded - those legitimately have no parent).
 pub fn external_class_refs(bin: &DelphiBinary<'_>) -> Vec<ExternalClassRef> {
     let classes = bin.classes();
     let mut out = Vec::new();
@@ -152,7 +152,7 @@ pub struct HandlerBinding {
 
 /// For every DFM event property in every form, record the binding.
 /// Rendered two ways by the dump: (a) grouped by binding, (b) grouped by
-/// method-name (the reverse view — "what calls this method?").
+/// method-name (the reverse view - "what calls this method?").
 pub fn event_bindings(bin: &DelphiBinary<'_>) -> Vec<HandlerBinding> {
     let forms = bin.forms();
     let mut out = Vec::new();

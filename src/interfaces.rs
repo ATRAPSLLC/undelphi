@@ -23,13 +23,13 @@
 //!
 //! ## FPC layout
 //!
-//! Source: `reference/fpc-source/rtl/inc/objpash.inc:183-208` — FPC's
+//! Source: `reference/fpc-source/rtl/inc/objpash.inc:183-208` - FPC's
 //! `tinterfaceentry` and `tinterfacetable`.
 //!
 //! ```text
 //!   EntryCount: SizeUInt         (ptr-sized, NOT u32)
 //!   entries[EntryCount]:
-//!     IIDRef:           ptr      (pointer to PGuid — two-level indirection)
+//!     IIDRef:           ptr      (pointer to PGuid - two-level indirection)
 //!     VTable:           ptr
 //!     IOffset:          sizeuint (ptr-sized, union with IOffsetAsCodePtr)
 //!     IIDStrRef:        ptr      (pointer to PShortString)
@@ -68,7 +68,7 @@ pub struct Guid {
 }
 
 impl Guid {
-    /// Construct from 16 little-endian bytes — equivalent to
+    /// Construct from 16 little-endian bytes - equivalent to
     /// [`From<[u8; 16]>`](#impl-From%3C%5Bu8%3B+16%5D%3E-for-Guid),
     /// kept for backwards compatibility with code that holds a `&[u8; 16]`.
     #[inline]
@@ -86,7 +86,7 @@ impl Guid {
 }
 
 impl From<[u8; 16]> for Guid {
-    /// Construct a `Guid` from 16 little-endian bytes — the on-disk
+    /// Construct a `Guid` from 16 little-endian bytes - the on-disk
     /// layout used by both Delphi (`TGuid` literal) and FPC.
     fn from(bytes: [u8; 16]) -> Self {
         Self {
@@ -103,7 +103,7 @@ impl From<[u8; 16]> for Guid {
 
 impl fmt::Display for Guid {
     /// Writes `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` directly to the
-    /// formatter — no intermediate `String` allocation.
+    /// formatter - no intermediate `String` allocation.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let d = &self.data4;
         write!(
@@ -140,13 +140,13 @@ pub struct InterfaceEntry<'a> {
     pub(crate) iid_str: Option<&'a [u8]>,
 }
 
-/// One method on an interface — produced by
+/// One method on an interface - produced by
 /// [`crate::DelphiBinary::interface_methods`].
 #[derive(Debug, Clone)]
 pub struct InterfaceMethod<'a> {
     /// Slot index within the interface's vtable (0 = first method).
     pub slot_index: u16,
-    /// Absolute VA of the method's code entry point — read off the
+    /// Absolute VA of the method's code entry point - read off the
     /// interface's `vtable_va` array. Subtract the image base for an RVA.
     pub code_va: u64,
     /// Method name when the interface RTTI carries one (FPC `tkInterface`
@@ -187,7 +187,7 @@ impl<'a> InterfaceMethod<'a> {
     /// outside the binary's primary code section).
     ///
     /// `pointer_size` is the binary's pointer width (4 or 8). Names
-    /// are always `None` here — names live in `tkInterface` RTTI which
+    /// are always `None` here - names live in `tkInterface` RTTI which
     /// this walker doesn't consult; callers wanting names should go
     /// through [`crate::DelphiBinary::interface_methods`], which
     /// merges the RTTI index in.
@@ -332,10 +332,10 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<InterfaceE
         let ioffset = read_ptr(data, ioffset_off, psize)?;
         let iid_str_ref = read_ptr(data, iid_str_ref_off, psize)?;
 
-        // IIDRef is ^PGuid — dereference twice:
+        // IIDRef is ^PGuid - dereference twice:
         //   deref_1 = *IIDRef  → a PGuid (VA of the 16-byte GUID)
         //   bytes at deref_1 = the GUID itself.
-        // If we can't follow the indirection the entry is malformed —
+        // If we can't follow the indirection the entry is malformed -
         // skip rather than emit a null GUID that would later be
         // mistaken for a real `IID_NULL`.
         let Some(guid) = read_fpc_iid(ctx, iid_ref, psize) else {
@@ -343,7 +343,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<InterfaceE
             continue;
         };
 
-        // IIDStrRef is ^PShortString — deref once to get the PShortString
+        // IIDStrRef is ^PShortString - deref once to get the PShortString
         // VA, then read the short-string body. Per objpash.inc:200.
         let iid_str = read_fpc_iid_str(ctx, iid_str_ref, psize);
 

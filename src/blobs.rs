@@ -36,7 +36,7 @@ pub struct EmbeddedBlob<'a, 'b> {
 }
 
 impl<'a, 'b> EmbeddedBlob<'a, 'b> {
-    /// Name of the property carrying this blob — convenience that
+    /// Name of the property carrying this blob - convenience that
     /// forwards to [`DfmProperty::name`].
     #[inline]
     pub fn property_name(&self) -> &'a str {
@@ -44,7 +44,7 @@ impl<'a, 'b> EmbeddedBlob<'a, 'b> {
     }
 }
 
-/// Format classification for an embedded blob — derived from magic bytes.
+/// Format classification for an embedded blob - derived from magic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlobKind {
     /// Windows Icon (`00 00 01 00`).

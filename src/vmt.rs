@@ -2,7 +2,7 @@
 //!
 //! Every Delphi / C++Builder / FPC class has a VMT in the binary's
 //! initialized-data payload. The VMT is the single most structural data
-//! item in a Delphi/FPC binary — every class instance carries a pointer to
+//! item in a Delphi/FPC binary - every class instance carries a pointer to
 //! it, and every class-metadata table (RTTI, fields, methods, interfaces,
 //! init) is reached through it. See `RESEARCH.md` §4 for background.
 //!
@@ -79,7 +79,7 @@ use crate::{
     util::{read_ptr, read_short_string_at_va},
 };
 
-/// VMT flavor — distinguishes the Delphi field order from the FPC field order.
+/// VMT flavor - distinguishes the Delphi field order from the FPC field order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmtFlavor {
     /// Delphi / C++Builder convention (vmtSelfPtr at offset 0).
@@ -96,7 +96,7 @@ pub struct Vmt<'a> {
     /// Pointer width of this VMT in bytes (4 or 8).
     pub pointer_size: u8,
     /// For Delphi: header slot count inferred from `vmtSelfPtr`. For FPC:
-    /// `0` (not available — FPC VMTs have no self-pointer).
+    /// `0` (not available - FPC VMTs have no self-pointer).
     pub header_slot_count: u8,
 
     /// Virtual address of the VMT base.
@@ -306,7 +306,7 @@ fn try_parse_fpc<'a>(
         Some(slot_off)
     };
 
-    // Field 1: `vmtInstanceSize2` — FPC stores `-vmtInstanceSize` here,
+    // Field 1: `vmtInstanceSize2` - FPC stores `-vmtInstanceSize` here,
     // truncated to pointer width. Required for validation; this is the
     // main discriminator that keeps FPC false-positive rates acceptable.
     let size2 = read_ptr(bytes, next_slot()?, psize)?;
@@ -364,11 +364,11 @@ fn is_plausible_instance_size(raw: u64, psize: usize) -> bool {
 }
 
 fn is_plausible_class_name(name: &[u8]) -> bool {
-    // Length cap is empirically grounded — see [`MAX_CLASS_NAME_BYTES`].
+    // Length cap is empirically grounded - see [`MAX_CLASS_NAME_BYTES`].
     if name.is_empty() || name.len() > MAX_CLASS_NAME_BYTES {
         return false;
     }
-    // Delphi / FPC class names are Pascal identifiers — possibly with
+    // Delphi / FPC class names are Pascal identifiers - possibly with
     // generics / namespace punctuation. Anything else is prose.
     if !name.iter().all(|&b| is_identifier_byte(b)) {
         return false;

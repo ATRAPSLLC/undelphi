@@ -38,10 +38,10 @@ pub enum LayoutKind {
         /// Resolved type name, when the field's `TypeInfoPtr` decoded.
         type_name: Option<String>,
         /// `true` if this field is also listed in the class's init table
-        /// (managed ref-counted type — string, interface, dynarray, …).
+        /// (managed ref-counted type - string, interface, dynarray, …).
         managed: bool,
     },
-    /// A byte range between known fields that we can't attribute — either
+    /// A byte range between known fields that we can't attribute - either
     /// non-published instance data, or padding.
     Gap,
     /// A managed-field entry from the init table with no matching named
@@ -132,7 +132,7 @@ pub fn reconstruct<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>) -> Vec<LayoutE
             size,
             kind: kind.clone(),
         });
-        // Saturate at u32::MAX rather than panic — a slot whose
+        // Saturate at u32::MAX rather than panic - a slot whose
         // offset+size would overflow is reported with a truncated
         // `prev_end`, which is preferable to dropping the layout.
         prev_end = off.saturating_add(size);
