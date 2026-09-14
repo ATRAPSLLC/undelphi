@@ -11,7 +11,7 @@
 //! Source: `reference/pythia/pythia/core/structures.py:291-300,317-323`.
 //!
 //! ```text
-//!   Header:           u16     (entry count — if zero, layout is modern)
+//!   Header:           u16     (entry count - if zero, layout is modern)
 //!   FieldTypesPtr:    ptr     (points at a separate array of class VMTs)
 //!   entries[Header]:
 //!     Offset:       u32       (instance-relative byte offset)
@@ -28,7 +28,7 @@
 //!   NumFields:     u16
 //!   entries[NumFields]:
 //!     unk1:        u8
-//!     TypeInfoPtr: ptr        (PPTypeInfo — direct pointer)
+//!     TypeInfoPtr: ptr        (PPTypeInfo - direct pointer)
 //!     Offset:      u32
 //!     Name:        ShortString
 //!     NumExtra:    u16
@@ -42,7 +42,7 @@
 //! ```text
 //!   TVmtFieldTable:
 //!     Count:     u16
-//!     ClassTab:  ptr         (PVmtFieldClassTab — array of PClass)
+//!     ClassTab:  ptr         (PVmtFieldClassTab - array of PClass)
 //!     Fields:    TVmtFieldEntry[Count]
 //!
 //!   TVmtFieldEntry (variable size):
@@ -147,7 +147,7 @@ fn read_legacy_delphi(
     // Header: u16 count + ptr fieldtypes_ptr.
     // Layout: [count:u16][fieldtypes_ptr:ptr][entries...]
     // Earlier field-types table is referenced by pythia but we don't
-    // dereference it — we return the index so callers can resolve it if
+    // dereference it - we return the index so callers can resolve it if
     // they want.
     if count == 0 || count > MAX_FIELDS_PER_CLASS {
         return Some(Vec::new());
@@ -174,7 +174,7 @@ fn read_legacy_delphi(
 
 fn read_modern_delphi(data: &[u8], after_header: usize, psize: usize) -> Option<Vec<Field<'_>>> {
     // After the 2-byte header=0 marker, pythia documents 4 bytes of
-    // unk2 before NumFields. Some Delphi versions don't emit the unk2 —
+    // unk2 before NumFields. Some Delphi versions don't emit the unk2 -
     // empirically the count is sometimes at +0 and sometimes at +4.
     // Probe both offsets and accept whichever yields a plausible count.
     for unk2_skip in [4usize, 0usize] {
@@ -297,7 +297,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Field<'a>>
 fn ptr_aligned_on_non_x86(ctx: &BinaryContext<'_>) -> bool {
     // FPC pointer-aligns field-table records only on
     // `FPC_REQUIRES_PROPER_ALIGNMENT` architectures (ARM / AArch64). x86 /
-    // x86-64 stay packed on every container — PE *and* ELF / Mach-O — so the
+    // x86-64 stay packed on every container - PE *and* ELF / Mach-O - so the
     // decision is made from the architecture, not from "is this PE?" (which
     // wrongly aligned x86-64 ELF / Mach-O).
     ctx.target_arch().fpc_requires_proper_alignment()

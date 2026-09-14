@@ -17,7 +17,7 @@
 //! Starter / Community read as Personal; Ultimate / Architect read as
 //! Enterprise.
 //!
-//! The raw resource bytes are provided by the caller — use the PE resource
+//! The raw resource bytes are provided by the caller - use the PE resource
 //! walker in [`crate::resources`] to locate them.
 
 use std::fmt;

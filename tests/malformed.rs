@@ -5,7 +5,7 @@
 //! inputs. The library must return `None` / empty results rather than
 //! panic or infinite-loop under any of these conditions.
 //!
-//! The tests intentionally use no `#[should_panic]` — we expect clean
+//! The tests intentionally use no `#[should_panic]` - we expect clean
 //! returns.
 
 use undelphi::{
@@ -44,7 +44,7 @@ fn parse_random_pattern_never_panics() {
 
 #[test]
 fn parse_only_magic_bytes() {
-    // Magic-only prefixes — every container detector must handle the
+    // Magic-only prefixes - every container detector must handle the
     // "valid magic, no further structure" case.
     let cases: &[&[u8]] = &[
         b"\x7fELF",
@@ -116,7 +116,7 @@ fn packageinfo_random_bytes_never_panics() {
 /// Regression: `packageinfo::Cursor::read_cstr_ascii` used to panic on
 /// `self.buf[start..]` when the cursor had advanced past the buffer end.
 /// Construct a buffer that claims one `Requires` entry but supplies only
-/// the `hash` byte — the cstr read then runs against `pos == buf.len()`.
+/// the `hash` byte - the cstr read then runs against `pos == buf.len()`.
 #[test]
 fn packageinfo_cstr_at_buffer_end_does_not_panic() {
     let mut v = Vec::new();
@@ -199,7 +199,7 @@ fn attribute_block_handles_truncation() {
 #[test]
 fn attribute_block_handles_huge_arg_len() {
     // Declare ArgLen = 0xFFFF but only 5 bytes of body.
-    // ptr ptr u16 body — 8 + 8 + 2 + 5 = 23 bytes.
+    // ptr ptr u16 body - 8 + 8 + 2 + 5 = 23 bytes.
     let mut v = Vec::new();
     v.extend_from_slice(&0u64.to_le_bytes()); // AttrType
     v.extend_from_slice(&0u64.to_le_bytes()); // AttrCtor
@@ -224,7 +224,7 @@ fn dfm_claims_all_value_types_without_panic() {
         s.push(4);
         s.extend_from_slice(b"Prop"); // property name
         s.push(tag); // the value type byte
-        // No value payload — so most types will fail truncation checks.
+        // No value payload - so most types will fail truncation checks.
         // The parser must return None without panicking.
         s.push(0); // end props
         s.push(0); // end children

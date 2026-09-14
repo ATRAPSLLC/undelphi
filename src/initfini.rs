@@ -31,7 +31,7 @@
 //! procedure addresses would require disassembling the program
 //! entry point, which is outside this crate's scope. Delphi binaries
 //! therefore return an empty vector from
-//! [`iter_unit_init_procs`] — by design, not a missing feature.
+//! [`iter_unit_init_procs`] - by design, not a missing feature.
 //! Consumers that want the unit list can read
 //! [`crate::DelphiBinary::package_info`] directly.
 //!
@@ -41,7 +41,7 @@
 //!
 //! 1. **Symbol lookup.** Goblin parses the binary's symbol table
 //!    (ELF `.symtab` / Mach-O `LC_SYMTAB` / PE COFF symbols) when
-//!    present. The table is a global named `INITFINAL` (FPC) — we look
+//!    present. The table is a global named `INITFINAL` (FPC) - we look
 //!    for that, plus the Mach-O-leading-underscore variant
 //!    (`_INITFINAL`) and the FPC-namespaced form (`FPC_INITFINAL`).
 //! 2. **Heuristic shape scan.** When the binary is stripped, we scan
@@ -58,7 +58,7 @@ use crate::{
     util::{read_ptr, read_short_string_at_va},
 };
 
-/// Hard limit on the number of units we'll trust in any one table —
+/// Hard limit on the number of units we'll trust in any one table -
 /// guards against pathologically large counts in adversarial input.
 const MAX_UNITS_PER_TABLE: usize = 4096;
 
@@ -80,7 +80,7 @@ pub struct UnitInitProc<'a> {
 /// Walk the FPC `INITFINAL` table for per-unit init / finalize VAs.
 ///
 /// Returns an empty vector for Delphi-compiled binaries (by design;
-/// Delphi inlines unit init into the entry point — see module docs)
+/// Delphi inlines unit init into the entry point - see module docs)
 /// and for FPC binaries where neither the symbol lookup nor the
 /// heuristic shape scan locates a plausible table.
 pub fn iter_unit_init_procs<'a>(ctx: &BinaryContext<'a>) -> Vec<UnitInitProc<'a>> {
@@ -129,7 +129,7 @@ fn locate_initfinal_via_symbol(ctx: &BinaryContext<'_>) -> Option<u64> {
             // PE COFF symbols are rare in modern toolchains (they're a
             // build-tools artefact, not a runtime artefact), and goblin
             // 0.10 doesn't expose them on `PE`. Fall through to the
-            // exports table — Delphi packages export their unit init
+            // exports table - Delphi packages export their unit init
             // procs by name in some configurations.
             for export in &pe.exports {
                 let Some(name) = export.name else { continue };
@@ -179,7 +179,7 @@ fn walk_initfinal<'a>(
             let name_off = cursor.checked_add(two_ptr)?;
             let name_ptr = read_ptr(data, name_off, ptr_size)?;
             // The name pointer is the only thing we read indirectly here.
-            // If it doesn't resolve, this entry is malformed — surface
+            // If it doesn't resolve, this entry is malformed - surface
             // the failure rather than emit an empty name.
             let name_bytes = read_short_string_at_va(ctx, name_ptr)?;
             str::from_utf8(name_bytes).unwrap_or("<non-ascii>")

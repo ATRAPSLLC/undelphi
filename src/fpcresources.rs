@@ -38,7 +38,7 @@
 //!
 //! A language node's `subptr` points directly at the resource bytes, and
 //! its `idcountsize` holds the byte length. We stop at the first language
-//! level we find — that's sufficient to expose every resource's body.
+//! level we find - that's sufficient to expose every resource's body.
 //!
 //! ## Allocation
 //!
@@ -54,7 +54,7 @@ pub mod rt {
     pub const CURSOR: u32 = 1;
     /// `RT_ICON`.
     pub const ICON: u32 = 3;
-    /// `RT_RCDATA` — custom binary resource (Delphi form streams live here).
+    /// `RT_RCDATA` - custom binary resource (Delphi form streams live here).
     pub const RCDATA: u32 = 10;
     /// `RT_GROUP_CURSOR`.
     pub const GROUP_CURSOR: u32 = 12;
@@ -91,11 +91,11 @@ pub fn iter_type<'a>(ctx: &BinaryContext<'a>, type_id: u32) -> Vec<FpcResource<'
         return Vec::new();
     };
     // We require a valid pointer size. If the container parse failed
-    // we cannot reliably decode the resource tree — bail.
+    // we cannot reliably decode the resource tree - bail.
     let Some(ptr_size) = ctx.pointer_size() else {
         return Vec::new();
     };
-    // The TResHdr sits at the start of the section — rootptr is its first
+    // The TResHdr sits at the start of the section - rootptr is its first
     // pointer-sized field.
     let root_va = match read_ptr(section_bytes, 0, ptr_size) {
         Some(v) => v,
@@ -134,7 +134,7 @@ pub fn iter_type<'a>(ctx: &BinaryContext<'a>, type_id: u32) -> Vec<FpcResource<'
     out
 }
 
-/// Convenience — enumerate every `RT_RCDATA` resource.
+/// Convenience - enumerate every `RT_RCDATA` resource.
 #[inline]
 pub fn iter_rcdata<'a>(ctx: &BinaryContext<'a>) -> Vec<FpcResource<'a>> {
     iter_type(ctx, rt::RCDATA)

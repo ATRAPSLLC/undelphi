@@ -5,7 +5,7 @@
 //! caps, a misaligned read that interprets random data as a count would
 //! easily request gigabytes of allocation or run the parser into garbage
 //! for thousands of iterations. The caps below are the single source of
-//! truth — modules consume them via `crate::limits::*` rather than
+//! truth - modules consume them via `crate::limits::*` rather than
 //! redeclaring inline literals.
 //!
 //! ## How the values were chosen
@@ -24,7 +24,7 @@
 //! - **Tighten** when a new audit run shows you have ≥10× headroom
 //!   AND no plausible Delphi/FPC RTL extension would push the value up.
 //! - **Loosen** the moment a real binary fails to parse because the cap
-//!   rejected legit data — empirical reality always wins. Update the
+//!   rejected legit data - empirical reality always wins. Update the
 //!   `Empirical max` line in the doc-comment when you do.
 
 // ---------------------------------------------------------------------------
@@ -33,11 +33,11 @@
 
 /// Maximum class-name byte length, including generics.
 ///
-/// Set to the **physical maximum** a `ShortString` can encode (`255` —
+/// Set to the **physical maximum** a `ShortString` can encode (`255` -
 /// the length prefix is a `u8`). Empirical max in the current corpus is
 /// 128 bytes (`TEnumerator<System.Generics.Collections.TPair<System.
 /// Messaging.TMessageListener,System.Messaging.TMessageManager.
-/// TListenerData>>` in heidisql_x64, 2026-04 cap_audit run) — the cap
+/// TListenerData>>` in heidisql_x64, 2026-04 cap_audit run) - the cap
 /// previously matched that exactly with **zero headroom**, which would
 /// silently reject the next deeper level of generic nesting. 255 is the
 /// largest value that can ever land in a `ShortString` body, so any
@@ -141,7 +141,7 @@ pub const MAX_ENUM_RANGE: i64 = 512;
 /// 13 (`TFormatSettings` in heidisql_xe5_unpacked). 256 ≈ 20× headroom.
 pub const MAX_RECORD_MANAGED_FIELDS: usize = 256;
 
-/// Maximum entries in a `tkRecord` full (extended) field table — every
+/// Maximum entries in a `tkRecord` full (extended) field table - every
 /// field, not just managed ones (Delphi 2010+). Larger than the managed cap
 /// because records can declare many plain-value fields; 1024 bounds a
 /// misparse of the version-sensitive extended layout while covering any real
@@ -154,7 +154,7 @@ pub const MAX_RECORD_FIELDS: usize = 1024;
 
 /// Maximum siblings under a single node of the FPC internal-resources
 /// tree. Not audited (the resource walker doesn't expose per-node
-/// sibling counts), so we keep the historical 32 768 — generous enough
+/// sibling counts), so we keep the historical 32 768 - generous enough
 /// that legitimate trees never approach it.
 pub const MAX_FPC_RESOURCE_SIBLINGS: usize = 32_768;
 
@@ -181,7 +181,7 @@ pub const MAX_FORMS_RAW_SCAN: usize = 4096;
 /// [`crate::DelphiBinary::types`] will visit.
 ///
 /// The walk follows `PPTypeInfo` pointers from the class graph, so it is
-/// bounded by the real RTTI graph (no raw scanning) — but a malformed binary
+/// bounded by the real RTTI graph (no raw scanning) - but a malformed binary
 /// could form a pathological reference chain through unrelated data. Empirical
 /// max in the corpus is ~3 000 distinct types (HeidiSQL 12 x64); 65 536 leaves
 /// a >20× margin while still capping a runaway walk.

@@ -1,7 +1,7 @@
 //! Toolchain detection for Delphi / C++Builder / Free Pascal compiled binaries.
 //!
 //! Identification combines several independent signals. No single one is
-//! decisive — Embarcadero and FPC both emit different markers, and common
+//! decisive - Embarcadero and FPC both emit different markers, and common
 //! packers (UPX, Themida, Enigma) strip some of them while leaving others
 //! intact. Each detected signal contributes to a confidence level.
 //!
@@ -121,7 +121,7 @@ impl TargetArch {
     /// (ARM / AArch64 / PowerPC / SPARC) but **not** on x86 / x86-64, which
     /// keep `TTypeData` packed *regardless of the container OS*. The flag is
     /// purely a function of the CPU, so it must be decided from the
-    /// architecture — not approximated from "is this a PE?" (that proxy
+    /// architecture - not approximated from "is this a PE?" (that proxy
     /// breaks on x86-64 ELF / Mach-O, which are packed yet not PE).
     ///
     /// `Unknown` is treated as packed: the dominant non-RISC case is x86,
@@ -325,7 +325,7 @@ const EMBARCADERO_PREFIX: &[u8] = b"Embarcadero ";
 /// marker. The first complete match wins. Returns `None` if neither marker is
 /// present.
 ///
-/// The returned `CompilerInfo` borrows from the original buffer — no
+/// The returned `CompilerInfo` borrows from the original buffer - no
 /// allocation happens in this path.
 pub fn scan_build_string<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     // Try Embarcadero first (typically earlier in the `.rdata` segment).
@@ -355,13 +355,13 @@ fn find_embarcadero<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     } else if let Some(r) = rest.strip_prefix("C++ ") {
         (Compiler::CppBuilder, r)
     } else {
-        // Unknown Embarcadero product variant — count as Delphi, leave rest as-is.
+        // Unknown Embarcadero product variant - count as Delphi, leave rest as-is.
         (Compiler::Delphi, rest)
     };
 
     let (os, arch) = parse_embarcadero_target(after_comp);
 
-    // "compiler version X.Y" substring — grab the token after it.
+    // "compiler version X.Y" substring - grab the token after it.
     let version = after_comp
         .split_once("compiler version ")
         .and_then(|(_, tail)| tail.split_whitespace().next());
@@ -398,7 +398,7 @@ fn parse_embarcadero_target(after_compiler_name: &str) -> (TargetOs, TargetArch)
 
 /// Locate an `FPC M.m.p [YYYY/MM/DD] for <arch> - <OS>` line.
 fn find_fpc<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
-    // Scan for every candidate, not just the first — many FPC-built binaries
+    // Scan for every candidate, not just the first - many FPC-built binaries
     // embed multiple FPC strings in `.rodata`. We want the first complete one.
     let mut cursor = 0usize;
     while let Some(tail) = data.get(cursor..)
@@ -560,7 +560,7 @@ pub fn count_tpf0(data: &[u8]) -> usize {
 /// Both `compiler_info` and `tpf0_count` are gathered in one pass so callers
 /// don't have to re-scan the binary buffer. Scans are limited to the
 /// sections that can plausibly carry the markers (read-only data for
-/// strings, resource section for TPF0) when those sections are known —
+/// strings, resource section for TPF0) when those sections are known -
 /// avoids walking megabytes of `.text` / overlay data on large binaries.
 /// Falls back to the full buffer when no narrower range is available.
 pub fn analyze<'a>(ctx: &BinaryContext<'a>) -> DetectionReport<'a> {
@@ -731,7 +731,7 @@ mod tests {
 
     #[test]
     fn borland_registry_fallback_identifies_pre_xe2_delphi() {
-        // `scan_build_string` strict semantics — no build-string, no hit.
+        // `scan_build_string` strict semantics - no build-string, no hit.
         let blob = b"random prefix SOFTWARE\\Borland\\Delphi\\RTL trailing bytes";
         assert!(scan_build_string(blob).is_none());
 

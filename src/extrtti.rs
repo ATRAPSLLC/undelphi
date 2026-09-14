@@ -6,7 +6,7 @@
 //! emitting auxiliary blocks that sit after the classic tables. Each
 //! extended entry carries:
 //!
-//! - A `Visibility` flag — private / protected / public / published.
+//! - A `Visibility` flag - private / protected / public / published.
 //! - A pointer to a `TPropInfo` / `TVmtMethodExEntry` / `TVmtFieldExEntry`
 //!   record (the underlying classic record is reused; the entry here
 //!   adds visibility + attribute metadata).
@@ -17,7 +17,7 @@
 //! Source: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:66-88`.
 //!
 //! ```text
-//!   PropCountEx: u16            (not always present — sniff for plausible count)
+//!   PropCountEx: u16            (not always present - sniff for plausible count)
 //!   entries[PropCountEx]:
 //!     Flags:        u8          (low 2 bits = Visibility, upper bits reserved)
 //!     Info:         PPropInfo   (pointer to a TPropInfo record elsewhere)
@@ -28,7 +28,7 @@
 //! ## Attribute-table entries
 //!
 //! Delphi's attribute block is a **sequence of variable-size entries
-//! packed back-to-back** (no leading count — the block size is
+//! packed back-to-back** (no leading count - the block size is
 //! `ExtraLen − 2` and entries are parsed sequentially until exhausted).
 //! Each entry is:
 //!
@@ -124,7 +124,7 @@ pub struct AttributeEntry<'a> {
     /// VA of the attribute class's `PPTypeInfo`. This is a *data* pointer,
     /// not a code pointer.
     pub attr_type_ref: u64,
-    /// Absolute VA of the attribute class's constructor — a *code*
+    /// Absolute VA of the attribute class's constructor - a *code*
     /// pointer. Use this as a disassembler-naming hint (e.g. label as
     /// `<AttrClass>.Create`). Subtract the image base for an RVA.
     pub attr_ctor: u64,
@@ -300,7 +300,7 @@ impl<'a> ExtendedProperty<'a> {
 
             // Dereference info_ptr to a TPropInfo and decode it.
             let Some(prop) = decode_prop_info_at(ctx, info_ptr, psize) else {
-                // Skip entries we can't dereference — some records point at
+                // Skip entries we can't dereference - some records point at
                 // Ancestor classes that live outside our scanned region.
                 cursor = next_cursor;
                 continue;
@@ -320,7 +320,7 @@ impl<'a> ExtendedProperty<'a> {
 
 /// Decode a standalone TPropInfo at `va` (used by extended RTTI, which
 /// holds pointers to TPropInfo records that may live anywhere in the
-/// binary — not necessarily in the classic TPropData list).
+/// binary - not necessarily in the classic TPropData list).
 fn decode_prop_info_at<'a>(ctx: &BinaryContext<'a>, va: u64, psize: usize) -> Option<Property<'a>> {
     if va == 0 {
         return None;
@@ -505,7 +505,7 @@ pub fn class_attribute_block_offset<'a>(
 }
 
 impl<'a> AttributeEntry<'a> {
-    /// Decode the class-level attribute block — finds the offset via
+    /// Decode the class-level attribute block - finds the offset via
     /// [`class_attribute_block_offset`] and decodes the `u16`-prefixed
     /// packed attribute entries that follow. Returns an empty vector
     /// when the binary doesn't carry an `AttrData` trailer for this
