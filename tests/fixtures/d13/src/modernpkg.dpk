@@ -1,0 +1,18 @@
+package modernpkg;
+
+{ A runtime package around the modern unit: its export table names every
+  routine of the unit (and the generic instances it needs) under its
+  mangled name, the answer key for the export-name generator on Delphi 13
+  (Borland names on Win32, Itanium names on Win64). The Win64 .dcp is the
+  PKX1 container whose units carry the package's image base. }
+
+{$DESCRIPTION 'undelphi Delphi 13 fixture package'}
+{$RUNONLY}
+
+requires
+  rtl;
+
+contains
+  modern in 'modern.pas';
+
+end.

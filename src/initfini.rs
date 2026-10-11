@@ -7,7 +7,7 @@
 //!
 //! ## FPC layout
 //!
-//! Source: `reference/fpc-source/rtl/inc/system.inc:1132-1149` and
+//! Source: FPC `rtl/inc/system.inc:1132-1149` and
 //! `systemh.inc:722-733`.
 //!
 //! ```text

@@ -1,5 +1,7 @@
 reference/*
 research/*
-tests/samples/*
 target/*
 *.log
+tests/samples/*
+!tests/samples/bcb6/
+!tests/samples/d13/

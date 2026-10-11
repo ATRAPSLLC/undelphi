@@ -9,16 +9,15 @@
 //!    [`crate::methods::MethodEntry`] in the classic `vmtMethodTable`. Only
 //!    emitted under `{$METHODINFO ON}` (Web Services / RemObjects), so it is
 //!    absent from most binaries. Layout reverse-engineered from
-//!    `reference/IDR-cpp/IDCGen.cpp::OutputVmtMethodEntryTail` (32-bit) and
-//!    `reference/IDR64/IDCGen.cpp` (64-bit). Decoded by
+//!    IDR `IDCGen.cpp::OutputVmtMethodEntryTail` (32-bit) and
+//!    IDR64 `IDCGen.cpp` (64-bit). Decoded by
 //!    [`MethodSignature::from_published_trailer`].
 //! 2. **FPC `TVmtMethodExTable`** - a separate, richer table sited
 //!    immediately after the basic FPC method-name table. Documented in
-//!    `reference/fpc-source/rtl/objpas/typinfo.pp`. *(decoded in a later
-//!    iteration)*
+//!    FPC `rtl/objpas/typinfo.pp`. Not decoded.
 //! 3. **Delphi 2010+ extended-RTTI method table** - part of the extended
-//!    `tkClass` type data. Layout is not publicly documented. *(decoded in a
-//!    later iteration)*
+//!    `tkClass` type data. Layout is not publicly documented. Decoded by
+//!    [`MethodSignature::from_delphi_extended`].
 //!
 //! Because availability varies by compiler era, the public accessor returns
 //! a [`SignatureReport`] that distinguishes "no signature RTTI was emitted"
@@ -28,6 +27,7 @@
 use std::str;
 
 use crate::{
+    extrtti::{AttributeEntry, Visibility, read_attr_data},
     formats::BinaryContext,
     rtti::TypeHeader,
     util::{read_ptr, read_short_string_at_file, read_u16},
@@ -46,7 +46,7 @@ pub enum SignatureSource {
 }
 
 /// Method kind. Ordinals mirror FPC's `TMethodKind`
-/// (`reference/fpc-source/rtl/objpas/typinfo.pp:91-93`), which Delphi shares.
+/// (FPC `rtl/objpas/typinfo.pp:91-93`), which Delphi shares.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MethodKind {
     /// `procedure`.
@@ -106,7 +106,7 @@ impl MethodKind {
 }
 
 /// Calling convention. Ordinals mirror FPC's `TCallConv`
-/// (`reference/fpc-source/rtl/objpas/typinfo.pp:104-106`), which Delphi
+/// (FPC `rtl/objpas/typinfo.pp:104-106`), which Delphi
 /// shares for the conventions it supports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallConv {
@@ -252,10 +252,13 @@ impl ParamFlags {
         }
     }
 
-    /// Whether this is a compiler-synthesised hidden parameter (`Self`, the
-    /// VMT pointer, an open-array `High` bound, the function `Result`, etc.)
-    /// rather than one written in the source signature. Consumers rendering
-    /// a human-facing prototype usually skip these.
+    /// Whether the compiler flags this as a hidden parameter rather than one
+    /// written in the source signature: on FPC `Self`, the VMT pointer, an
+    /// open-array `High` bound, the function `Result` and other hidden
+    /// parameters; on Delphi only `Result` (`pfResult`) - Delphi's implicit
+    /// `Self` is the unflagged first parameter of a method that is not
+    /// static ([`ExtendedMethodInfo::is_static`]). Consumers rendering a
+    /// human-facing prototype usually skip these.
     pub fn is_hidden(self) -> bool {
         if self.fpc {
             self.raw
@@ -277,7 +280,7 @@ impl ParamFlags {
 }
 
 /// One parameter of a [`MethodSignature`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MethodParam<'a> {
     /// Parameter name, when the RTTI carried one.
     pub name: Option<&'a str>,
@@ -287,17 +290,96 @@ pub struct MethodParam<'a> {
     pub type_name: Option<&'a str>,
     /// The parameter's `PPTypeInfo` VA (`0` when absent).
     pub type_va: u64,
+    /// The parameter's attributes (Delphi extended RTTI; empty otherwise).
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 /// Extra metadata carried by Delphi extended-method-section entries
 /// (absent from published-trailer entries).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExtendedMethodInfo {
-    /// Raw entry flags word (bit layout not decoded - see
-    /// [`crate::methods::DelphiExtMethod::flags`]).
+    /// Raw entry flags word (`TVmtMethodExEntry.Flags`), decoded by the
+    /// methods below.
     pub flags: u16,
-    /// VMT slot index for virtual methods (`-1`/large for non-virtual).
+    /// The VMT slot (counted from the class pointer; negative inside the
+    /// header) for a [`DispatchKind::Virtual`] method, the dynamic index for
+    /// a dynamic one; meaningless for a static method.
     pub vmt_index: i16,
+}
+
+/// How a method is called (`System.TypInfo.TDispatchKind`, the two bits an
+/// extended method entry stores).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchKind {
+    /// A direct call.
+    Static,
+    /// Through the VMT (`virtual`, `override`).
+    Virtual,
+    /// Through the dynamic table (`dynamic`).
+    Dynamic,
+    /// Through the dynamic table by message number (`message`).
+    Message,
+}
+
+/// The bits of `TVmtMethodExEntry.Flags` (`System.Rtti`: `mfClassMethod`,
+/// `mfHasSelf`, `mfSpecial`, the dispatch kind at bit 3, the visibility at
+/// bit 5, `mfAbstract`).
+const MF_CLASS_METHOD: u16 = 0x01;
+const MF_HAS_SELF: u16 = 0x02;
+const MF_SPECIAL: u16 = 0x04;
+const MF_ABSTRACT: u16 = 0x80;
+
+impl ExtendedMethodInfo {
+    /// The declared visibility.
+    pub fn visibility(&self) -> Visibility {
+        Visibility::from_flags((self.flags >> 5) as u8)
+    }
+
+    /// How the method is called.
+    pub fn dispatch(&self) -> DispatchKind {
+        match (self.flags >> 3) & 0x03 {
+            0 => DispatchKind::Static,
+            1 => DispatchKind::Virtual,
+            2 => DispatchKind::Dynamic,
+            _ => DispatchKind::Message,
+        }
+    }
+
+    /// Whether the method is `abstract`.
+    pub fn is_abstract(&self) -> bool {
+        self.flags & MF_ABSTRACT != 0
+    }
+
+    /// Whether the method has no `Self` (a `class ... static` method or a
+    /// class operator).
+    pub fn is_static(&self) -> bool {
+        if self.flags & MF_SPECIAL != 0 {
+            self.flags & 0x03 == 2
+        } else {
+            self.flags & MF_HAS_SELF == 0
+        }
+    }
+
+    /// The method kind, given whether it returns a value (as
+    /// `TRttiInstanceMethodEx.GetMethodKind` derives it).
+    pub fn kind(&self, has_result: bool) -> MethodKind {
+        if self.flags & MF_SPECIAL != 0 {
+            return match self.flags & 0x03 {
+                0 => MethodKind::Constructor,
+                1 => MethodKind::Destructor,
+                2 => MethodKind::OperatorOverload,
+                _ if has_result => MethodKind::Function,
+                _ => MethodKind::Procedure,
+            };
+        }
+        let class = self.flags & MF_HAS_SELF == 0 || self.flags & MF_CLASS_METHOD != 0;
+        match (class, has_result) {
+            (true, true) => MethodKind::ClassFunction,
+            (true, false) => MethodKind::ClassProcedure,
+            (false, true) => MethodKind::Function,
+            (false, false) => MethodKind::Procedure,
+        }
+    }
 }
 
 /// A decoded method signature: calling convention, ordered parameters, and
@@ -325,6 +407,8 @@ pub struct MethodSignature<'a> {
     /// Extended-section metadata (flags, VMT index), when the signature came
     /// from a Delphi extended-method entry.
     pub extended: Option<ExtendedMethodInfo>,
+    /// The method's attributes (Delphi extended RTTI; empty otherwise).
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 /// Result of asking a class for its method signatures, with explicit era
@@ -362,7 +446,7 @@ impl<'a> MethodSignature<'a> {
     /// from the surrounding [`crate::methods::MethodEntry`]. Returns `None`
     /// when the trailer is empty or too short to hold the fixed header.
     ///
-    /// Layout (per `reference/IDR-cpp/IDCGen.cpp::OutputVmtMethodEntryTail`):
+    /// Layout (per IDR `IDCGen.cpp::OutputVmtMethodEntryTail`):
     ///
     /// ```text
     ///   Version:    u8
@@ -459,25 +543,32 @@ impl<'a> MethodSignature<'a> {
             let name_off = type_off.checked_add(ptr_size)?.checked_add(2)?;
             let pname = read_short_string_at_file(trailer, name_off)?;
             let (type_name, param_type_va) = resolve_type(ctx, param_type_va, ptr_size, flavor);
+            // Advance past name, then the AttrData block.
+            let after_name = name_off.checked_add(1)?.checked_add(pname.len())?;
+            let attributes = read_attr_data(trailer, after_name, ptr_size)
+                .map(|(a, _)| a)
+                .unwrap_or_default();
             params.push(MethodParam {
                 name: bytes_to_name(pname),
                 flags,
                 type_name,
                 type_va: param_type_va,
+                attributes,
             });
-            // Advance past name, then the AttrData block.
-            let after_name = name_off.checked_add(1)?.checked_add(pname.len())?;
             cursor = skip_attr_data(trailer, after_name)?;
         }
+        // The method's own attributes follow its parameters.
+        let attributes = read_attr_data(trailer, cursor, ptr_size)
+            .map(|(a, _)| a)
+            .unwrap_or_default();
 
-        // Determine kind from the presence of a result type. The published
-        // trailer does not carry an explicit `Kind` byte, so this is a
-        // best-effort classification (constructors/destructors are not
-        // distinguishable here).
-        let kind = if result_type_va != 0 {
-            MethodKind::Function
-        } else {
-            MethodKind::Procedure
+        // The published trailer carries no kind: only a result type tells a
+        // function from a procedure. An extended entry's flags give the
+        // full kind.
+        let kind = match extended {
+            Some(info) => info.kind(result_type_va != 0),
+            None if result_type_va != 0 => MethodKind::Function,
+            None => MethodKind::Procedure,
         };
 
         Some(Self {
@@ -490,6 +581,7 @@ impl<'a> MethodSignature<'a> {
             code_va,
             source,
             extended,
+            attributes,
         })
     }
 }

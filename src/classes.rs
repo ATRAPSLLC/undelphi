@@ -6,13 +6,14 @@
 //! relationships. Class-name strings still point back at the caller's
 //! byte buffer.
 //!
-//! The `Class` API deliberately stays thin in this iteration. Per-class
-//! properties (from the field / method / RTTI tables) land in iteration 3;
-//! see `RESEARCH.md §13.4` for the delivery plan.
+//! The `Class` API deliberately stays thin. Per-class data from the field,
+//! method and RTTI tables is read through [`crate::DelphiBinary`], which
+//! holds the image those tables point into.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::Write,
+    str,
 };
 
 use crate::{
@@ -140,7 +141,7 @@ impl<'a> ClassSet<'a> {
         for (i, vmt) in vmts.into_iter().enumerate() {
             let parent_index = resolve_parent(&vmt, &by_vmt_va, ctx);
             let class = Class { vmt, parent_index };
-            if let Ok(name) = core::str::from_utf8(class.vmt.class_name_bytes()) {
+            if let Ok(name) = str::from_utf8(class.vmt.class_name_bytes()) {
                 by_name.entry(name).or_insert(i);
             }
             classes.push(class);

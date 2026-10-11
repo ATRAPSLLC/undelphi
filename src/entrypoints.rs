@@ -7,7 +7,7 @@
 //! constructors, unit init / finalize procedures.
 //!
 //! Building this list by hand requires walking ~10 different APIs and
-//! understanding the slot-index → VA lookup for `AccessKind::Virtual`.
+//! understanding the VMT-offset → VA lookup for `AccessKind::Virtual`.
 //! [`DelphiBinary::code_entrypoints`](crate::DelphiBinary::code_entrypoints)
 //! does it once.
 //!
@@ -21,7 +21,9 @@ use std::fmt;
 use crate::{
     DelphiBinary,
     classes::Class,
+    imports::{BorlandSymbol, SymbolKind},
     properties::{Access, AccessKind, AccessTarget},
+    vmt::VmtFlavor,
     vtable::VirtualMethodEntry,
 };
 
@@ -40,8 +42,12 @@ pub enum EntrypointKind {
     /// Reached through a class's interface getter (`InterfaceEntry::getter_va`).
     InterfaceGetter,
     /// Reached through an interface vtable pointer
-    /// (`InterfaceMethod::code_va`).
+    /// (`InterfaceMethod::code_va`): the adjustor thunk.
     InterfaceMethod,
+    /// The method an interface adjustor thunk transfers to
+    /// ([`crate::DelphiBinary::interface_method_target`]). Often the only
+    /// metadata reference to a non-virtual, non-published method.
+    InterfaceImplementation,
     /// A property's getter function (static or virtual-resolved).
     PropertyGetter,
     /// A property's setter function (static or virtual-resolved).
@@ -57,6 +63,10 @@ pub enum EntrypointKind {
     /// A unit's `finalization` procedure
     /// (`UnitInitProc::finalize_va`).
     UnitFinalize,
+    /// A routine a runtime package exports by Borland-mangled name
+    /// ([`crate::DelphiBinary::exports`]); the label is the demangled
+    /// `Unit.Name`.
+    PackageExport,
 }
 
 /// One labelled code entry point.
@@ -100,12 +110,14 @@ impl EntrypointKind {
             EntrypointKind::DynamicMessage => "dynamic_message",
             EntrypointKind::InterfaceGetter => "interface_getter",
             EntrypointKind::InterfaceMethod => "interface_method",
+            EntrypointKind::InterfaceImplementation => "interface_implementation",
             EntrypointKind::PropertyGetter => "property_getter",
             EntrypointKind::PropertySetter => "property_setter",
             EntrypointKind::PropertyStored => "property_stored",
             EntrypointKind::AttributeCtor => "attribute_ctor",
             EntrypointKind::UnitInit => "unit_init",
             EntrypointKind::UnitFinalize => "unit_finalize",
+            EntrypointKind::PackageExport => "package_export",
         }
     }
 }
@@ -149,6 +161,23 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
             ));
         }
 
+        // TObject's own virtuals (the destructor and friends), which Delphi
+        // keeps inside the VMT header.
+        if class.vmt.flavor == VmtFlavor::Delphi {
+            for v in bin.standard_virtuals(class) {
+                let label = match v.name {
+                    Some(name) => format!("{class_name}.{name}"),
+                    None => format!("{class_name}.vmt[{}]", v.vmt_offset),
+                };
+                out.push(CodeEntrypoint::new(
+                    v.code_va,
+                    EntrypointKind::VmtSlot,
+                    Some(class),
+                    label,
+                ));
+            }
+        }
+
         // Dynamic-dispatch slots.
         for d in bin.dynamic_slots(class) {
             out.push(CodeEntrypoint::new(
@@ -161,25 +190,32 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
 
         // Interfaces - getter and (when known) per-method pointers.
         for entry in bin.interfaces(class) {
-            if entry.getter_va != 0 {
+            if let AccessTarget::CodeVa(va) = entry.getter.resolve(&vmethods) {
                 out.push(CodeEntrypoint::new(
-                    entry.getter_va,
+                    va,
                     EntrypointKind::InterfaceGetter,
                     Some(class),
                     format!("{}.intfgetter[{}]", class_name, entry.guid),
                 ));
             }
             for im in bin.interface_methods(&entry) {
+                let label = match im.name {
+                    Some(name) => format!("{}.intf[{}].{}", class_name, entry.guid, name),
+                    None => format!("{}.intf[{}].slot{}", class_name, entry.guid, im.slot_index),
+                };
+                if let Some(target) = bin.interface_method_target(class, &im) {
+                    out.push(CodeEntrypoint::new(
+                        target,
+                        EntrypointKind::InterfaceImplementation,
+                        Some(class),
+                        format!("{label}.impl"),
+                    ));
+                }
                 out.push(CodeEntrypoint::new(
                     im.code_va,
                     EntrypointKind::InterfaceMethod,
                     Some(class),
-                    match im.name {
-                        Some(name) => format!("{}.intf[{}].{}", class_name, entry.guid, name),
-                        None => {
-                            format!("{}.intf[{}].slot{}", class_name, entry.guid, im.slot_index)
-                        }
-                    },
+                    label,
                 ));
             }
         }
@@ -275,6 +311,23 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
                 EntrypointKind::UnitFinalize,
                 None,
                 format!("{}.Finalization", unit.unit_name),
+            ));
+        }
+    }
+
+    // Routines a runtime package exports by mangled name.
+    for (name, va) in bin.exports() {
+        if !bin.ctx().is_code_va(va) || bin.import_at(va).is_some() {
+            continue;
+        }
+        if let Some(symbol) = BorlandSymbol::demangle(name)
+            && symbol.kind == SymbolKind::Routine
+        {
+            out.push(CodeEntrypoint::new(
+                va,
+                EntrypointKind::PackageExport,
+                None,
+                format!("{}.{}", symbol.unit, symbol.name),
             ));
         }
     }

@@ -1,9 +1,9 @@
 [package]
 name = "undelphi"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Static analysis library for Delphi / C++Builder / Free Pascal compiled binaries - identification and metadata extraction (RTTI, VMTs, DFM forms, packages)"
+description = "Static analysis library for Delphi / C++Builder / Free Pascal compiled binaries and units - identification and metadata extraction (RTTI, VMTs, DFM forms, packages, DCUs, IDR knowledge bases)"
 license = "Apache-2.0"
 repository = "https://github.com/ATRAPSLLC/undelphi"
 readme = "README.md"

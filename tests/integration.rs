@@ -1,8 +1,7 @@
 //! Integration tests against the corpus in `tests/samples/`.
 //!
-//! Each sample has a documented expected fingerprint in `SAMPLES.md`. The
-//! assertions here enforce the same values so that parser drift is caught by
-//! CI. If a sample is missing locally (fresh checkout without the large
+//! Each sample has a known expected fingerprint, and the assertions here
+//! enforce it so that parser drift is caught by CI. If a sample is missing locally (fresh checkout without the large
 //! binary corpus), the test is skipped rather than failing.
 
 #![allow(
@@ -13,6 +12,7 @@
 )]
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     str,
@@ -23,6 +23,7 @@ use undelphi::{
     detection::{Compiler, DetectionSource, TargetArch, TargetOs},
     dfm::DfmValue,
     dvclal::Edition,
+    entrypoints::EntrypointKind,
     extrtti::Visibility,
     layout::reconstruct,
     render::render_enum_ordinal,
@@ -32,7 +33,7 @@ use undelphi::{
 };
 
 /// Assert that a class named `class_name` has a published method named
-/// `method_name`. Extraction drives iteration 3's method-table parser.
+/// `method_name`. Extraction drives the method-table parser.
 #[allow(dead_code)]
 fn assert_has_method(bin: &DelphiBinary<'_>, class_name: &str, method_name: &str) {
     let classes = bin.classes();
@@ -97,7 +98,7 @@ fn heidisql_win64_delphi_12_athens() {
     // PACKAGEINFO should parse and list both requires and contains.
     let pkg = bin.package_info().expect("should parse PACKAGEINFO");
     assert!(!pkg.contains.is_empty(), "should contain at least one unit");
-    // TPF0 forms expected (confirmed in SAMPLES.md: 42).
+    // The sample carries 42 TPF0 forms.
     assert!(bin.tpf0_count() >= 10, "expect many TPF0 resources");
 
     // Class-tree assertions.
@@ -123,7 +124,7 @@ fn heidisql_win64_delphi_12_athens() {
     assert_ancestry(&bin, "TStringList", &["TStrings", "TPersistent", "TObject"]);
     assert!(classes.max_depth() >= 5);
 
-    // Iteration 3: RTTI unit names.
+    // RTTI unit names.
     let tobject = classes.find_by_name("TObject").unwrap();
     assert_eq!(bin.unit_name(tobject), Some("System"));
     let tcomp = classes.find_by_name("TComponent").unwrap();
@@ -134,7 +135,7 @@ fn heidisql_win64_delphi_12_athens() {
     let tmain = classes.find_by_name("TMainForm").unwrap();
     assert_eq!(bin.unit_name(tmain), Some("Main"));
 
-    // Iteration 3: method table on a form that publishes event handlers.
+    // Method table on a form that publishes event handlers.
     // TMainForm has hundreds of published event handlers.
     let methods = bin.methods(tmain);
     assert!(
@@ -143,7 +144,7 @@ fn heidisql_win64_delphi_12_athens() {
         methods.len()
     );
 
-    // Iteration 3: interface table - TInterfacedObject implements IUnknown.
+    // Interface table -TInterfacedObject implements IUnknown.
     let ti = classes.find_by_name("TInterfacedObject").unwrap();
     let ifaces = bin.interfaces(ti);
     assert_eq!(ifaces.len(), 1);
@@ -176,7 +177,7 @@ fn heidisql_win64_delphi_12_athens() {
         "expected at least one class with attributes via the trailer walker"
     );
 
-    // Iteration 4: published properties. TForm should expose 100+ and
+    // Published properties. TForm should expose 100+ and
     // classic VCL names must be present.
     let props = bin.properties(tform);
     assert!(props.len() > 50, "TForm property count: {}", props.len());
@@ -188,7 +189,7 @@ fn heidisql_win64_delphi_12_athens() {
         );
     }
 
-    // Iteration 4: published fields on TMainForm.
+    // Published fields on TMainForm.
     let fields = bin.fields(tmain);
     assert!(
         fields.len() > 100,
@@ -205,7 +206,6 @@ fn heidisql_win64_delphi_12_athens() {
         "code_entrypoints count: {}",
         entrypoints.len()
     );
-    use undelphi::entrypoints::EntrypointKind;
     assert!(
         entrypoints
             .iter()
@@ -213,7 +213,7 @@ fn heidisql_win64_delphi_12_athens() {
         "expected at least one PublishedMethod entrypoint"
     );
 
-    // Iteration 4: forms parsed from DFM resources.
+    // Forms parsed from DFM resources.
     let forms = bin.forms();
     assert!(forms.len() >= 20, "parsed form count: {}", forms.len());
     // Find the About-box form and inspect a Caption.
@@ -232,7 +232,7 @@ fn heidisql_win64_delphi_12_athens() {
         other => panic!("expected Caption=String, got {other:?}"),
     }
 
-    // Iteration 5: property-type resolution + enumeration catalog.
+    // Property-type resolution + enumeration catalog.
     let prop_caption = props
         .iter()
         .find(|p| p.name() == "Caption")
@@ -269,7 +269,7 @@ fn heidisql_win64_delphi_12_athens() {
         ]
     );
 
-    // Iteration 6: per-Kind TypeDetail on properties.
+    // Per-Kind TypeDetail on properties.
     let prop_anchors = props
         .iter()
         .find(|p| p.name() == "Anchors")
@@ -291,14 +291,14 @@ fn heidisql_win64_delphi_12_athens() {
         other => panic!("expected TAnchors to be Set, got {other:?}"),
     }
 
-    // Iteration 6: render helper.
+    // Render helper.
     let aligns = bin
         .decode_enum(align_ty.va, Compiler::Delphi)
         .expect("TAlign");
     assert_eq!(render_enum_ordinal(5, &aligns), "alClient");
     assert!(render_enum_ordinal(99, &aligns).contains("out-of-range"));
 
-    // Iteration 7: virtual method table, init table, dynamic table.
+    // Virtual method table, init table, dynamic table.
     let vtable = bin.virtual_methods(tform);
     assert!(
         vtable.len() > 50,
@@ -313,11 +313,11 @@ fn heidisql_win64_delphi_12_athens() {
         "TComponent should have dynamic/message slots"
     );
 
-    // Iteration 7: tkMethod decoder on TNotifyEvent-shaped event.
+    // The tkMethod decoder on TNotifyEvent-shaped event.
     let tcomp_on_change = props.iter().find(|p| p.name() == "Action");
     let _ = tcomp_on_change; // keep one use
 
-    // Iteration 7: event-handler cross-link.
+    // Event-handler cross-link.
     let forms = bin.forms();
     // Pick a form with an OnCreate / OnShow / etc.
     let mut resolved = 0;
@@ -340,7 +340,7 @@ fn heidisql_win64_delphi_12_athens() {
         resolved
     );
 
-    // Iteration 8: extended-RTTI properties expose non-published members.
+    // Extended-RTTI properties expose non-published members.
     let ext_tcomp = bin.extended_properties(tcomp);
     assert!(
         !ext_tcomp.is_empty(),
@@ -351,16 +351,16 @@ fn heidisql_win64_delphi_12_athens() {
         "TComponent extended RTTI should include Public props"
     );
 
-    // Iteration 8: class-hierarchy tree non-empty.
+    // Class-hierarchy tree non-empty.
     let tree = classes.render_tree(64);
     assert!(tree.contains("TObject"), "class tree missing TObject");
     assert!(tree.contains("TComponent"), "class tree missing TComponent");
 
-    // Iteration 9: compiler product name.
+    // Compiler product name.
     let info = bin.compiler().unwrap();
     assert_eq!(info.product_name().as_deref(), Some("Delphi 12 Athens"));
 
-    // Iteration 9: interface cross-reference.
+    // Interface cross-reference.
     let iface_xref = interface_implementors(&bin);
     assert!(
         iface_xref
@@ -369,12 +369,12 @@ fn heidisql_win64_delphi_12_athens() {
         "IUnknown should appear in interface cross-reference"
     );
 
-    // Iteration 9: DFM class instantiation cross-reference.
+    // DFM class instantiation cross-reference.
     let dfm_xref = dfm_class_instantiations(&bin);
     assert!(dfm_xref.contains_key("TButton"));
     assert!(dfm_xref.contains_key("TLabel"));
 
-    // Iteration 9: instance-layout reconstruction.
+    // Instance-layout reconstruction.
     let layout = reconstruct(&bin, tform);
     assert!(!layout.is_empty());
 }
@@ -396,7 +396,7 @@ fn doublecmd_win32_fpc_322() {
 
     // FPC binaries do not emit DVCLAL.
     assert!(bin.edition().is_none(), "FPC should not have DVCLAL");
-    // SAMPLES.md reports 114 TPF0 forms.
+    // The sample carries 114 TPF0 forms.
     assert!(bin.tpf0_count() >= 100);
 
     // Class-tree assertions. Double Commander is a Lazarus/FPC binary,
@@ -411,7 +411,7 @@ fn doublecmd_win32_fpc_322() {
         &["TLCLComponent", "TComponent", "TPersistent", "TObject"],
     );
 
-    // Iteration 3: FPC RTTI unit names (FPC 3.2.2 - Lazarus convention).
+    // FPC RTTI unit names (FPC 3.2.2 - Lazarus convention).
     let tmain = classes.find_by_name("TfrmMain").unwrap();
     assert_eq!(bin.unit_name(tmain), Some("fMain"));
     // Methods extracted via FPC's PShortString-deref layout.
@@ -483,7 +483,7 @@ fn cheatengine_win64_fpc_304() {
     assert_eq!(classes.root().map(|c| c.name()), Some("TObject"));
     assert_ancestry(&bin, "TComponent", &["TPersistent", "TObject"]);
 
-    // Iteration 3: FPC 3.0.4 (the older-pre-VER3_2 layout) unit extraction.
+    // FPC 3.0.4 (the older-pre-VER3_2 layout) unit extraction.
     let tmain = classes.find_by_name("TMainForm").unwrap();
     assert_eq!(bin.unit_name(tmain), Some("MainUnit"));
     let methods = bin.methods(tmain);
@@ -521,7 +521,7 @@ fn heidisql_macos_aarch64_fpc_322() {
     assert_eq!(classes.root().map(|c| c.name()), Some("TObject"));
     assert_ancestry(&bin, "TComponent", &["TPersistent", "TObject"]);
 
-    // Iteration 3: FPC + Mach-O + aarch64 exercises the pointer-alignment
+    // FPC + Mach-O + aarch64 exercises the pointer-alignment
     // path in the RTTI tkClass decoder (FPC sets
     // `FPC_REQUIRES_PROPER_ALIGNMENT` on ARM, so TypeData is pointer-aligned).
     let tmain = classes.find_by_name("TMainForm").unwrap();
@@ -529,7 +529,7 @@ fn heidisql_macos_aarch64_fpc_322() {
     let methods = bin.methods(tmain);
     assert!(methods.len() > 50);
 
-    // Iteration 5: FPC resources tree walker on Mach-O (where PE RCDATA
+    // FPC resources tree walker on Mach-O (where PE RCDATA
     // isn't available). Should surface at least one parseable form.
     let forms = bin.forms();
     assert!(forms.len() >= 10, "macOS FPC form count: {}", forms.len());
@@ -549,11 +549,13 @@ fn idr64_delphi_32bit() {
     assert!(bin.format().is_pe());
 
     // IDR64.exe ships without an Embarcadero build-string but carries the
-    // legacy `SOFTWARE\Borland\Delphi\RTL` registry marker.
+    // legacy `SOFTWARE\Borland\Delphi\RTL` registry marker. It is a
+    // C++Builder 6 project (IDR64's `Idr64.bpr`, `.cpp` sources),
+    // and its C++ runtime's `fb:C++HOOK` marker says so.
     let info = bin
         .compiler()
         .expect("legacy fallback should identify IDR64");
-    assert_eq!(info.compiler, Compiler::Delphi);
+    assert_eq!(info.compiler, Compiler::CppBuilder);
     assert_eq!(info.source, DetectionSource::BorlandRegistry);
     assert_eq!(info.version, None);
 
@@ -1113,4 +1115,154 @@ fn fpc_type_closure_works() {
 fn garbage_input_returns_err() {
     let data = b"this is not a delphi binary at all, just random ascii";
     assert!(DelphiBinary::parse(data).is_err());
+}
+
+/// Every interface slot in the corpus decodes as an adjustor thunk whose
+/// implementation resolves - Delphi 7 / XE5 / 12 and FPC 3.0 / 3.2 on
+/// 32-bit, Win64, Linux and macOS.
+#[test]
+fn interface_thunks_resolve_across_compilers() {
+    for rel in [
+        "lightalloy/LA.exe",
+        "heidisql/portable_x86_xe5/heidisql.unpacked.exe",
+        "heidisql/portable_x64/heidisql.exe",
+        "doublecmd/win32/doublecmd/doublecmd.exe",
+        "doublecmd/linux_x86_64/doublecmd.elf",
+        "doublecmd/macos_x86_64/doublecmd.macho",
+        "cheatengine/bin/cheatengine-x86_64.exe",
+    ] {
+        let Some(data) = load(rel) else {
+            eprintln!("skipping {rel}: sample missing");
+            continue;
+        };
+        let bin = DelphiBinary::parse(&data).expect("parse");
+        let (mut slots, mut resolved) = (0usize, 0usize);
+        for class in bin.classes().iter() {
+            for entry in bin.interfaces(class) {
+                for method in bin.interface_methods(&entry) {
+                    slots += 1;
+                    if bin.interface_method_target(class, &method).is_some() {
+                        resolved += 1;
+                    }
+                }
+            }
+        }
+        assert!(slots > 100, "{rel}: {slots} interface slots");
+        assert_eq!(resolved, slots, "{rel}: unresolved interface slots");
+    }
+}
+
+/// FPC 3.0 stores one-level `IID` / `IIDStr` references in its interface
+/// entries (3.2 added a second level); Cheat Engine is FPC 3.0.4 Win64.
+#[test]
+fn fpc_30_interface_entries_decode() {
+    let Some(data) = load("cheatengine/bin/cheatengine-x86_64.exe") else {
+        eprintln!("skipping: sample missing");
+        return;
+    };
+    let bin = DelphiBinary::parse(&data).expect("parse");
+    let iunknown = "{00000000-0000-0000-C000-000000000046}";
+    let class = bin
+        .classes()
+        .find_by_name("TInterfacedObject")
+        .expect("TInterfacedObject");
+    let entries = bin.interfaces(class);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].guid.to_string(), iunknown);
+    assert_eq!(entries[0].iid_str(), Some(iunknown));
+    assert_eq!(entries[0].offset, 16);
+}
+
+/// The Delphi 2010+ unit initialization table lists every RTTI type by
+/// declaring unit; `types()` must find every one of them.
+#[test]
+fn types_cover_the_compiler_type_table() {
+    for rel in [
+        "heidisql/portable_x86_xe5/heidisql.unpacked.exe",
+        "heidisql/portable_x64/heidisql.exe",
+        "delphilint/DelphiLintClient-1.3.0-Athens.bpl",
+    ] {
+        let Some(data) = load(rel) else {
+            eprintln!("skipping {rel}: sample missing");
+            continue;
+        };
+        let bin = DelphiBinary::parse(&data).expect("parse");
+        let table = bin.unit_init_table().expect("unit init table");
+        let units = table.types.expect("2010+ type table");
+        let ptr_size = bin.ctx().pointer_size().unwrap();
+        let found: HashSet<u64> = bin.types().iter().map(|t| t.header().va).collect();
+        let mut listed = 0usize;
+        for unit in &units {
+            for &cell in &unit.type_refs {
+                let off = bin.ctx().va_to_file(cell).unwrap();
+                let bytes = &data[off..off + ptr_size];
+                let type_info = bytes
+                    .iter()
+                    .rev()
+                    .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+                assert!(
+                    found.contains(&type_info),
+                    "{rel}: {}.{type_info:#x} missing from types()",
+                    unit.name()
+                );
+                listed += 1;
+            }
+        }
+        assert!(listed > 500, "{rel}: {listed} listed types");
+    }
+}
+
+/// Delphi 2010+ field tables continue past the published entries with every
+/// field the class declares; `TStringList`'s private fields are the RTL's
+/// own declaration.
+#[test]
+fn extended_field_table_lists_every_field() {
+    for (rel, expected) in [
+        (
+            "heidisql/portable_x86_xe5/heidisql.unpacked.exe",
+            &[
+                ("FList", 44),
+                ("FCount", 48),
+                ("FCapacity", 52),
+                ("FSorted", 56),
+                ("FDuplicates", 57),
+                ("FCaseSensitive", 58),
+                ("FOnChange", 64),
+                ("FOnChanging", 72),
+                ("FOwnsObject", 80),
+            ][..],
+        ),
+        (
+            "heidisql/portable_x64/heidisql.exe",
+            &[
+                ("FList", 56),
+                ("FCount", 64),
+                ("FCapacity", 68),
+                ("FSorted", 72),
+                ("FDuplicates", 73),
+                ("FCaseSensitive", 74),
+                ("FOnChange", 80),
+                ("FOnChanging", 96),
+                ("FOwnsObject", 112),
+                ("FOverridden", 113),
+            ][..],
+        ),
+    ] {
+        let Some(data) = load(rel) else {
+            eprintln!("skipping {rel}: sample missing");
+            continue;
+        };
+        let bin = DelphiBinary::parse(&data).expect("parse");
+        let class = bin
+            .classes()
+            .find_by_name("TStringList")
+            .expect("TStringList");
+        let fields: Vec<(&str, u32)> = bin
+            .extended_fields(class)
+            .iter()
+            .map(|f| (f.name(), f.offset))
+            .collect();
+        assert_eq!(fields, expected, "{rel}");
+        assert!(bin.fields(class).is_empty(), "no published fields");
+    }
 }

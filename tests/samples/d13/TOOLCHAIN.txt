@@ -1,0 +1,5 @@
+Embarcadero Delphi for Win32 compiler version 37.0
+Embarcadero Delphi for Win64 compiler version 37.0
+6bfcc75f4eebb62c15c49e8832e7a5a66a6da990b9d3d324ae7c6bb3d736fdb9  dcc32.EXE
+176be4546969c1dfe558f4dfe0fa9171e59a952a4377488f476b77cfa6b0386e  dcc64.exe
+3d1ad81a8b30930f95838b2caa6b9e855ba9341755dabcbe3ba7908ad371e080  brcc32.exe

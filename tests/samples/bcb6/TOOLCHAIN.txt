@@ -1,0 +1,6 @@
+Borland Delphi Version 14.0
+Borland C++ 5.6 for Win32 Copyright (c) 1993, 2002 Borland
+c5a562d130371563eb87e74a72dc0c2a6616588809b74f0a0fe0c8c5d2ace36a  dcc32.exe
+b6132ef6214568dcd22370979ee87b127c369de79602e75cad027243d927cac0  bcc32.exe
+123e67364a68e3ec2ebd0e91757ceeb48c3855868a5ce7a0cc14aba58aa49abf  ilink32.exe
+8738bbf9ad1b31aa83b1662eb528cedd77f1470717ca81fea55a9e683a3d6ee7  brcc32.exe

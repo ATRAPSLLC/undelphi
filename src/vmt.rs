@@ -4,7 +4,7 @@
 //! initialized-data payload. The VMT is the single most structural data
 //! item in a Delphi/FPC binary - every class instance carries a pointer to
 //! it, and every class-metadata table (RTTI, fields, methods, interfaces,
-//! init) is reached through it. See `RESEARCH.md` §4 for background.
+//! init) is reached through it.
 //!
 //! ## Two flavors
 //!
@@ -31,8 +31,8 @@
 //!  +N*ptr   ← start of virtual method pointers (N varies by Delphi version)
 //! ```
 //!
-//! Source: `reference/pythia/pythia/core/structures.py:346-380`;
-//! `reference/DelphiHelper/DelphiHelper/core/DelphiClass.py:29-41,180-234`.
+//! Source: pythia `pythia/core/structures.py:346-380`;
+//! DelphiHelper `DelphiHelper/core/DelphiClass.py:29-41,180-234`.
 //!
 //! ### FPC layout (`rtl/inc/objpash.inc:75-90`)
 //!
@@ -71,13 +71,20 @@
 //! The class-name slice returned by [`Vmt::class_name`] is a direct slice
 //! of the caller's binary buffer; no string copy happens in the hot path.
 
-use std::{collections::HashSet, str};
+use std::{collections::HashSet, ops::Range, str};
 
 use crate::{
     formats::{BinaryContext, BinaryFormat, SectionRange},
-    limits::{MAX_CLASS_NAME_BYTES, MAX_INSTANCE_SIZE_BYTES},
+    limits::{
+        DELPHI_MAX_HEADER_SLOTS, DELPHI_MIN_HEADER_SLOTS, MAX_CLASS_NAME_BYTES,
+        MAX_INSTANCE_SIZE_BYTES,
+    },
     util::{read_ptr, read_short_string_at_va},
 };
+
+/// The pointer-sized fields of an FPC VMT header, `vmtInstanceSize` to
+/// `vmtMsgStrPtr`, before its first virtual-method slot.
+const FPC_HEADER_SLOTS: u64 = 12;
 
 /// VMT flavor - distinguishes the Delphi field order from the FPC field order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,11 +133,46 @@ pub struct Vmt<'a> {
     pub instance_size: u32,
     /// VA of the parent class's VMT base, or `0` for root classes.
     pub parent_vmt: u64,
-
-    pub(crate) class_name: &'a [u8],
+    /// Class-name short-string body, borrowed from the input buffer (see
+    /// [`Vmt::class_name_bytes`]).
+    pub class_name: &'a [u8],
 }
 
 impl<'a> Vmt<'a> {
+    /// Returns the virtual addresses of the VMT's fixed header: from its base
+    /// to the first virtual-method slot.
+    ///
+    /// Delphi measures it by `vmtSelfPtr`, which points at that slot; FPC's
+    /// is the twelve pointer-sized fields of `objpash.inc`. `None` for a
+    /// Delphi VMT whose self-pointer does not lie past its base.
+    pub fn header_extent(&self) -> Option<Range<u64>> {
+        let end = match self.flavor {
+            VmtFlavor::Delphi => self.self_ptr,
+            VmtFlavor::Fpc => self
+                .va
+                .checked_add(u64::from(self.pointer_size).checked_mul(FPC_HEADER_SLOTS)?)?,
+        };
+        (end > self.va).then_some(self.va..end)
+    }
+
+    /// Returns the class pointer: the VA a `TClass` value holds, which
+    /// virtual dispatch adds VMT byte offsets to. Delphi's points just past
+    /// the header (the `vmtSelfPtr` target, the first virtual slot); FPC's
+    /// is the VMT base itself, where `vmtInstanceSize` lives.
+    pub fn class_pointer(&self) -> u64 {
+        match self.flavor {
+            VmtFlavor::Delphi => self.self_ptr,
+            VmtFlavor::Fpc => self.va,
+        }
+    }
+
+    /// Returns the class-name short string's virtual addresses: its
+    /// length byte and its characters.
+    pub fn class_name_extent(&self) -> Option<Range<u64>> {
+        let len = u64::try_from(self.class_name.len()).ok()?.checked_add(1)?;
+        Some(self.class_name_ptr..self.class_name_ptr.checked_add(len)?)
+    }
+
     /// Class name as `&str`, lossily decoded. Pascal class names are ASCII
     /// in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
     #[inline]
@@ -144,11 +186,18 @@ impl<'a> Vmt<'a> {
     pub fn class_name_bytes(&self) -> &'a [u8] {
         self.class_name
     }
+
+    /// Returns whether this is a Delphi 2009 or later header, the release
+    /// that added the `Equals`, `GetHashCode` and `ToString` slots. Always
+    /// `false` for FPC, whose headers carry no such date.
+    pub fn is_delphi_2009_or_later(&self) -> bool {
+        self.flavor == VmtFlavor::Delphi && self.header_slot_count >= DELPHI_2009_HEADER_SLOTS
+    }
 }
 
-/// Delphi shape bounds (slot count of `vmtSelfPtr − base` divided by pointer width).
-const DELPHI_MIN_HEADER_SLOTS: u64 = 5;
-const DELPHI_MAX_HEADER_SLOTS: u64 = 30;
+/// Header slots of a Delphi 2009 or later VMT: that release added the
+/// `Equals`, `GetHashCode` and `ToString` slots to Delphi 7's 19.
+const DELPHI_2009_HEADER_SLOTS: u8 = 22;
 
 /// Minimum number of pointer-sized slots needed to parse an FPC header.
 /// We read fields 0 through 10 (IntfTable), so we need at least 11 slots.

@@ -7,7 +7,7 @@
 //! - `fpc.resources` in the Mach-O `__DATA` segment
 //! - `.fpc.resources` on ELF / PE
 //!
-//! Authoritative source: `reference/fpc-source/rtl/inc/intres.inc:30-45`.
+//! Authoritative source: FPC `rtl/inc/intres.inc:30-45`.
 //! The on-disk structures are:
 //!
 //! ```text

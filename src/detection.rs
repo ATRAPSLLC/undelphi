@@ -13,15 +13,25 @@
 //! | FPC build-string (`FPC 3.2.2 [...] for i386 - Win32`) | High | yes |
 //! | `DVCLAL` resource present | High | no |
 //! | `PACKAGEINFO` resource present | High | no |
-//! | `SOFTWARE\Borland\Delphi\RTL` registry path (pre-XE2) | Medium | no (era only: D2–D2005) |
+//! | `SOFTWARE\Borland\Delphi\RTL` registry path (pre-XE2) | Medium | no (era only: D2 - D2005) |
 //! | Namespaced VCL/RTL unit (`Vcl.Controls`, …) (XE2+) | Medium | no (era only: XE2+) |
+//! | Import from an RTL/VCL runtime package (`rtl60.bpl`, …) | Medium | yes, from the package suffix |
 //! | Many `TPF0` occurrences | Medium | no |
 //!
-//! See `RESEARCH.md` §2 for the full identification strategy.
+//! A binary linked against runtime packages keeps the RTL - and with it the
+//! registry-path and namespaced-unit markers - in `rtlNN.bpl`, so the
+//! package import is its only compiler signal.
+//!
+//! Any Delphi-family match is reported as [`Compiler::CppBuilder`] when the
+//! C++Builder runtime's `fb:C++HOOK` / `___CPPdebugHook` debugger-hook
+//! markers are also present (verified on C++Builder 6 output; a Delphi
+//! binary never carries them). The markers alone identify C++Builder output
+//! that does not use the VCL: such a binary has no Delphi RTL, but the
+//! C++Builder linker still stamps it with a `DVCLAL` resource.
 
 use std::{fmt, str};
 
-use crate::formats::BinaryContext;
+use crate::{formats::BinaryContext, imports};
 
 /// Confidence level for toolchain identification.
 ///
@@ -128,8 +138,8 @@ impl TargetArch {
     /// and on PE the architecture is frequently left `Unknown` for older
     /// Delphi output that emits no build-string arch.
     ///
-    /// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:867-871`.
-    pub(crate) const fn fpc_requires_proper_alignment(self) -> bool {
+    /// Source: FPC `rtl/objpas/typinfo.pp:867-871`.
+    pub const fn fpc_requires_proper_alignment(self) -> bool {
         matches!(self, TargetArch::Arm | TargetArch::Aarch64)
     }
 }
@@ -193,6 +203,14 @@ pub enum DetectionSource {
     /// The namespace-prefixed form was introduced with Delphi XE2, so a hit
     /// here indicates XE2 or later.
     NamespacedUnits,
+    /// Import from a Delphi RTL/VCL runtime package (`rtl60.bpl`,
+    /// `vcl50.bpl`, …), or the binary being one. The package suffix pins
+    /// the compiler version.
+    PackageImports,
+    /// C++Builder runtime debugger-hook marker (`fb:C++HOOK`) in a binary
+    /// with no Delphi RTL marker: C++Builder output that does not use the
+    /// VCL.
+    CppRuntime,
 }
 
 impl DetectionSource {
@@ -202,6 +220,8 @@ impl DetectionSource {
             DetectionSource::BuildString => "build_string",
             DetectionSource::BorlandRegistry => "borland_registry",
             DetectionSource::NamespacedUnits => "namespaced_units",
+            DetectionSource::PackageImports => "package_imports",
+            DetectionSource::CppRuntime => "cpp_runtime",
         }
     }
 }
@@ -244,6 +264,7 @@ impl<'a> CompilerInfo<'a> {
     ///
     /// | dcc version | RAD Studio / Delphi |
     /// |-------------|---------------------|
+    /// | 37.x        | Delphi 13 Florence  |
     /// | 36.x        | Delphi 12 Athens    |
     /// | 35.x        | Delphi 11 Alexandria |
     /// | 34.x        | Delphi 10.4 Sydney  |
@@ -270,7 +291,10 @@ impl<'a> CompilerInfo<'a> {
     pub fn product_name(&self) -> Option<String> {
         let version = self.version?;
         match self.compiler {
-            Compiler::Delphi | Compiler::CppBuilder => delphi_product_name(version),
+            Compiler::Delphi => delphi_product_name(version),
+            Compiler::CppBuilder => {
+                delphi_product_name(version).map(|name| name.replacen("Delphi", "C++Builder", 1))
+            }
             Compiler::FreePascal => Some(format!("Free Pascal {}", version)),
         }
     }
@@ -280,6 +304,7 @@ fn delphi_product_name(version: &str) -> Option<String> {
     // Split at '.' and parse the major.
     let major: u32 = version.split('.').next()?.parse().ok()?;
     let name = match major {
+        37 => "Delphi 13 Florence",
         36 => "Delphi 12 Athens",
         35 => "Delphi 11 Alexandria",
         34 => "Delphi 10.4 Sydney",
@@ -337,10 +362,29 @@ pub fn scan_build_string<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
 
 /// Locate an `Embarcadero Delphi/C++Builder for <target> compiler version <ver> (<build>)` line.
 fn find_embarcadero<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
-    let start = find_bytes(data, EMBARCADERO_PREFIX)?;
-
-    // Extend to a printable-ASCII run of up to 256 bytes.
-    let raw = printable_ascii_run(data, start, 256)?;
+    // The RTL also carries other "Embarcadero ..." strings (its copyright
+    // banner, "Embarcadero Run Time Library", precedes the build string in
+    // Seattle's `rtl230.bpl`), so prefer the occurrence that states a
+    // compiler version and fall back to the first only when none does.
+    let mut first: Option<&'a str> = None;
+    let mut search = 0usize;
+    let mut chosen: Option<&'a str> = None;
+    while let Some(found) = data
+        .get(search..)
+        .and_then(|rest| find_bytes(rest, EMBARCADERO_PREFIX))
+    {
+        let start = search.checked_add(found)?;
+        // Extend to a printable-ASCII run of up to 256 bytes.
+        if let Some(run) = printable_ascii_run(data, start, 256) {
+            if run.contains("compiler version ") {
+                chosen = Some(run);
+                break;
+            }
+            first.get_or_insert(run);
+        }
+        search = start.checked_add(EMBARCADERO_PREFIX.len())?;
+    }
+    let raw = chosen.or(first)?;
 
     // Expected prefixes:
     //   "Embarcadero Delphi for Win64 compiler version 36.0 (29.0.55362.2017)"
@@ -564,13 +608,29 @@ pub fn count_tpf0(data: &[u8]) -> usize {
 /// avoids walking megabytes of `.text` / overlay data on large binaries.
 /// Falls back to the full buffer when no narrower range is available.
 pub fn analyze<'a>(ctx: &BinaryContext<'a>) -> DetectionReport<'a> {
-    let compiler_info = scan_compiler_in_ctx(ctx);
+    let packaged = find_package_imports(ctx);
+    let compiler_info = match scan_compiler_in_ctx(ctx) {
+        // A marker without a version yields to the RTL / VCL package the
+        // binary imports or is, whose suffix pins the version.
+        Some(info)
+            if info.version.is_none() && packaged.as_ref().is_some_and(|p| p.version.is_some()) =>
+        {
+            packaged
+        }
+        Some(info) => Some(info),
+        None => packaged,
+    }
+    .map(|info| mark_cpp_builder(ctx, info))
+    .or_else(|| find_cpp_runtime(ctx));
     let tpf0 = count_tpf0_in_ctx(ctx);
     let confidence = match compiler_info.as_ref().map(|c| c.source) {
         Some(DetectionSource::BuildString) => Confidence::High,
-        Some(DetectionSource::BorlandRegistry | DetectionSource::NamespacedUnits) => {
-            Confidence::Medium
-        }
+        Some(
+            DetectionSource::BorlandRegistry
+            | DetectionSource::NamespacedUnits
+            | DetectionSource::PackageImports
+            | DetectionSource::CppRuntime,
+        ) => Confidence::Medium,
         None if tpf0 > 0 => Confidence::Medium,
         None => Confidence::None,
     };
@@ -579,6 +639,63 @@ pub fn analyze<'a>(ctx: &BinaryContext<'a>) -> DetectionReport<'a> {
         compiler_info,
         tpf0_count: tpf0,
     }
+}
+
+/// C++Builder runtime markers: the debugger hook the C++ RTL exports
+/// (`___CPPdebugHook`) and the signature that precedes it (`fb:C++HOOK`).
+const CPP_BUILDER_MARKERS: &[&[u8]] = &[b"fb:C++HOOK", b"___CPPdebugHook"];
+
+/// Reclassifies a Delphi-family match as C++Builder when the C++Builder
+/// runtime markers are present.
+fn mark_cpp_builder<'a>(ctx: &BinaryContext<'a>, mut info: CompilerInfo<'a>) -> CompilerInfo<'a> {
+    let data = ctx.data();
+    if info.compiler == Compiler::Delphi
+        && CPP_BUILDER_MARKERS
+            .iter()
+            .any(|marker| find_bytes(data, marker).is_some())
+    {
+        info.compiler = Compiler::CppBuilder;
+    }
+    info
+}
+
+/// Identifies C++Builder output without a Delphi RTL from the C++ runtime
+/// marker alone. The returned `raw` is the marker.
+fn find_cpp_runtime<'a>(ctx: &BinaryContext<'a>) -> Option<CompilerInfo<'a>> {
+    let data = ctx.data();
+    let marker = CPP_BUILDER_MARKERS.first()?;
+    let start = find_bytes(data, marker)?;
+    let raw = str::from_utf8(data.get(start..start.checked_add(marker.len())?)?).ok()?;
+    Some(CompilerInfo {
+        compiler: Compiler::CppBuilder,
+        version: None,
+        raw,
+        arch: TargetArch::Unknown,
+        os: TargetOs::Unknown,
+        source: DetectionSource::CppRuntime,
+    })
+}
+
+/// Identifies a binary linked against the Delphi RTL/VCL runtime packages
+/// from its imports, or an RTL/VCL package itself from the module name its
+/// export directory records (`rtl60.bpl` imports no `rtl60.bpl`). The
+/// returned `raw` is the package module name.
+fn find_package_imports<'a>(ctx: &BinaryContext<'a>) -> Option<CompilerInfo<'a>> {
+    let pe = ctx.pe()?;
+    let module = pe
+        .imports
+        .iter()
+        .map(|import| import.dll)
+        .chain(pe.name)
+        .find(|module| imports::is_rtl_package(module))?;
+    Some(CompilerInfo {
+        compiler: Compiler::Delphi,
+        version: imports::rtl_package_compiler_version(module),
+        raw: module,
+        arch: TargetArch::Unknown,
+        os: TargetOs::Unknown,
+        source: DetectionSource::PackageImports,
+    })
 }
 
 /// Compiler-marker scan restricted to read-only data when available.
@@ -684,6 +801,8 @@ mod tests {
         assert_eq!(TargetArch::X86_64.as_str(), "x86_64");
         assert_eq!(TargetOs::Windows.as_str(), "windows");
         assert_eq!(DetectionSource::BuildString.as_str(), "build_string");
+        assert_eq!(DetectionSource::PackageImports.as_str(), "package_imports");
+        assert_eq!(DetectionSource::CppRuntime.as_str(), "cpp_runtime");
     }
 
     #[test]
@@ -753,6 +872,16 @@ mod tests {
         assert_eq!(info.source, DetectionSource::NamespacedUnits);
         assert_eq!(info.version, None);
         assert_eq!(info.raw, "Vcl.Controls");
+    }
+
+    #[test]
+    fn build_string_skips_other_embarcadero_strings() {
+        // Seattle's rtl230.bpl carries its copyright banner before the build
+        // string; the occurrence stating a compiler version wins.
+        let blob = b"\x00Embarcadero Run Time Library\x00...\x00Embarcadero Delphi for Win32 compiler version 30.0 (23.0.21418.4207)\x00";
+        let info = scan_build_string(blob).expect("build string");
+        assert_eq!(info.version, Some("30.0"));
+        assert_eq!(info.arch, TargetArch::X86);
     }
 
     #[test]

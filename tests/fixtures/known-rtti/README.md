@@ -39,11 +39,11 @@ Compiled samples live in `tests/samples/known-rtti/`:
   (`prop_type_ref` reads a non-null but non-resolving VA - the 3.0.4
   `TPropInfo` layout differs from 3.2.2). Because the property types don't
   resolve, the type closure isn't seeded and `TColor` / `TProgressEvent` are
-  not surfaced either. Tracked in `TODO.md`.
+  not surfaced either.
 - **Standalone FPC types are not surfaced.** FPC emits `tkRecord` /
   `tkSet` / `tkDynArray` / `tkInterface` records for `TVertex`, `TColors`,
   `TStringArray`, `IWidget` (referenced only via `TypeInfo()`), but
   `types()` reaches none - FPC has no self-cell pattern and the closure only
-  reaches class-member types. See `RESEARCH.md §5.8`. Tracked in `TODO.md`.
+  reaches class-member types.
 
 Keep `known.pas` and the golden assertions in lockstep.

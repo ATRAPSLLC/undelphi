@@ -1,0 +1,202 @@
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000098CH .text                   CODE
+ 0002:00000000 0000002CH .data                   DATA
+ 0002:0000002C 00000041H .bss                    BSS
+
+
+Detailed map of segments
+
+ 0001:00000000 00000106 C=CODE     S=.text    G=(none)   M=System   ACBP=A9
+ 0001:00000108 000001EC C=CODE     S=.text    G=(none)   M=SysInit  ACBP=A9
+ 0001:000002F4 0000000E C=CODE     S=.text    G=(none)   M=Classes  ACBP=A9
+ 0001:00000304 0000000E C=CODE     S=.text    G=(none)   M=ActiveX  ACBP=A9
+ 0001:00000314 00000038 C=CODE     S=.text    G=(none)   M=Messages ACBP=A9
+ 0001:0000034C 00000038 C=CODE     S=.text    G=(none)   M=Windows  ACBP=A9
+ 0001:00000384 0000000E C=CODE     S=.text    G=(none)   M=Types    ACBP=A9
+ 0001:00000394 0000000E C=CODE     S=.text    G=(none)   M=TypInfo  ACBP=A9
+ 0001:000003A4 0000000E C=CODE     S=.text    G=(none)   M=SysUtils ACBP=A9
+ 0001:000003B4 0000000E C=CODE     S=.text    G=(none)   M=SysConst ACBP=A9
+ 0001:000003C4 0000000E C=CODE     S=.text    G=(none)   M=Variants ACBP=A9
+ 0001:000003D4 0000000E C=CODE     S=.text    G=(none)   M=VarUtils ACBP=A9
+ 0001:000003E4 0000000E C=CODE     S=.text    G=(none)   M=RTLConsts ACBP=A9
+ 0001:000003F4 000004F0 C=CODE     S=.text    G=(none)   M=dcutypes ACBP=A9
+ 0001:000008E4 000000A5 C=CODE     S=.text    G=(none)   M=dcutypespkg ACBP=A9
+ 0002:00000000 00000028 C=DATA     S=.data    G=DGROUP   M=SysInit  ACBP=A9
+ 0002:00000028 00000001 C=DATA     S=.data    G=DGROUP   M=dcutypes ACBP=A9
+ 0002:00001000 00000018 C=BSS      S=.bss     G=DGROUP   M=SysInit  ACBP=A9
+ 0002:00001018 00000004 C=BSS      S=.bss     G=DGROUP   M=Messages ACBP=A9
+ 0002:0000101C 00000004 C=BSS      S=.bss     G=DGROUP   M=Windows  ACBP=A9
+ 0002:00001020 00000020 C=BSS      S=.bss     G=DGROUP   M=dcutypes ACBP=A9
+
+
+  Address         Publics by Name
+
+ 0002:00001018       .1
+ 0002:00001010       .1
+ 0002:0000101C       .3
+ 0002:0000103C       .3
+ 0001:00000964       @GetPackageInfoTable
+ 0001:00000240       @InitPkg
+ 0001:000002A4       @PackageLoad
+ 0001:0000096C       @PackageLoad
+ 0001:000002B0       @PackageUnload
+ 0001:00000978       @PackageUnload
+ 0001:000006C4       Add
+ 0001:000006D0       AddOverload
+ 0001:000006CC       AddOverload
+ 0001:00000140       AllocTlsBuffer
+ 0001:00000728       CdeclFunc
+ 0002:00000028       CSet
+ 0001:000008DC       dcutypes
+ 0001:00000984       dcutypespkg
+ 0001:000006F0       DefaultParams
+ 0001:000001EC       ExitProcessTLS
+ 0001:000001C4       ExitThreadTLS
+ 0001:000002BC       Finalization
+ 0001:00000314       Finalization
+ 0001:000008AC       Finalization
+ 0001:0000034C       Finalization
+ 0001:00000108       FreeLibrary
+ 0001:0000014C       GetTlsSize
+ 0002:00001038       GPtr
+ 0002:00001020       GVar
+ 0002:0000100C       HInstance
+ 0001:00000210       InitializeModule
+ 0001:00000198       InitProcessTLS
+ 0001:00000154       InitThreadTLS
+ 0001:000007D4       Inner
+ 0001:00000110       LocalAlloc
+ 0001:00000118       LocalFree
+ 0001:00000344       Messages
+ 0002:00000000       Module
+ 0002:00001000       ModuleIsLib
+ 0002:00001001       ModuleIsPackage
+ 0001:000007E0       NestedHost
+ 0001:000007D0       OldProc
+ 0001:00000798       OpenArray
+ 0001:00000734       PascalProc
+ 0001:0000079C       RecResult
+ 0001:0000074C       SafeCallFunc
+ 0001:00000710       StdCallFunc
+ 0001:000002EC       SysInit
+ 0001:00000878       TBase.ClassFunc
+ 0001:000007F8       TBase.Create
+ 0001:0000083C       TBase.Destroy
+ 0001:00000870       TBase.DynProc
+ 0001:0000086C       TBase.VirtProc
+ 0001:00000120       TlsAlloc
+ 0002:00001014       tlsBuffer
+ 0001:00000128       TlsFree
+ 0001:00000130       TlsGetValue
+ 0002:00001004       TlsIndex
+ 0002:FFBFE000       TlsLast
+ 0002:00000018       TlsProc
+ 0001:00000138       TlsSetValue
+ 0001:0000087C       TShape.Area
+ 0001:00000890       TShape.Scale
+ 0001:0000021C       UninitializeModule
+ 0001:00000788       VarOut
+ 0001:0000037C       Windows
+
+
+  Address         Publics by Value
+
+ 0002:FFBFE000       TlsLast
+ 0001:00000108       FreeLibrary
+ 0001:00000110       LocalAlloc
+ 0001:00000118       LocalFree
+ 0001:00000120       TlsAlloc
+ 0001:00000128       TlsFree
+ 0001:00000130       TlsGetValue
+ 0001:00000138       TlsSetValue
+ 0001:00000140       AllocTlsBuffer
+ 0001:0000014C       GetTlsSize
+ 0001:00000154       InitThreadTLS
+ 0001:00000198       InitProcessTLS
+ 0001:000001C4       ExitThreadTLS
+ 0001:000001EC       ExitProcessTLS
+ 0001:00000210       InitializeModule
+ 0001:0000021C       UninitializeModule
+ 0001:00000240       @InitPkg
+ 0001:000002A4       @PackageLoad
+ 0001:000002B0       @PackageUnload
+ 0001:000002BC       Finalization
+ 0001:000002EC       SysInit
+ 0001:00000314       Finalization
+ 0001:00000344       Messages
+ 0001:0000034C       Finalization
+ 0001:0000037C       Windows
+ 0001:000006C4       Add
+ 0001:000006CC       AddOverload
+ 0001:000006D0       AddOverload
+ 0001:000006F0       DefaultParams
+ 0001:00000710       StdCallFunc
+ 0001:00000728       CdeclFunc
+ 0001:00000734       PascalProc
+ 0001:0000074C       SafeCallFunc
+ 0001:00000788       VarOut
+ 0001:00000798       OpenArray
+ 0001:0000079C       RecResult
+ 0001:000007D0       OldProc
+ 0001:000007D4       Inner
+ 0001:000007E0       NestedHost
+ 0001:000007F8       TBase.Create
+ 0001:0000083C       TBase.Destroy
+ 0001:0000086C       TBase.VirtProc
+ 0001:00000870       TBase.DynProc
+ 0001:00000878       TBase.ClassFunc
+ 0001:0000087C       TShape.Area
+ 0001:00000890       TShape.Scale
+ 0001:000008AC       Finalization
+ 0001:000008DC       dcutypes
+ 0001:00000964       @GetPackageInfoTable
+ 0001:0000096C       @PackageLoad
+ 0001:00000978       @PackageUnload
+ 0001:00000984       dcutypespkg
+ 0002:00000000       Module
+ 0002:00000018       TlsProc
+ 0002:00000028       CSet
+ 0002:00001000       ModuleIsLib
+ 0002:00001001       ModuleIsPackage
+ 0002:00001004       TlsIndex
+ 0002:0000100C       HInstance
+ 0002:00001010       .1
+ 0002:00001014       tlsBuffer
+ 0002:00001018       .1
+ 0002:0000101C       .3
+ 0002:00001020       GVar
+ 0002:00001038       GPtr
+ 0002:0000103C       .3
+
+
+Line numbers for dcutypes(dcutypes.pas) segment .text
+
+    99 0001:000005C0   152 0001:000006C4   153 0001:000006C8   157 0001:000006CC
+   158 0001:000006CD   161 0001:000006D0   162 0001:000006D6   163 0001:000006E6
+   166 0001:000006F0   167 0001:000006F9   168 0001:00000709   171 0001:00000710
+   172 0001:00000713   173 0001:00000721   176 0001:00000728   177 0001:0000072B
+   178 0001:00000730   181 0001:00000734   182 0001:00000737   183 0001:00000745
+   186 0001:0000074C   187 0001:00000762   188 0001:00000780   191 0001:00000788
+   192 0001:00000789   193 0001:00000790   194 0001:00000794   198 0001:00000798
+   199 0001:0000079B   204 0001:0000079C   205 0001:000007A3   206 0001:000007AA
+   207 0001:000007B3   208 0001:000007C1   209 0001:000007C9   213 0001:000007D0
+   218 0001:000007D4   219 0001:000007D7   220 0001:000007DD   222 0001:000007E0
+   223 0001:000007E7   224 0001:000007F3   229 0001:000007F8   230 0001:0000080D
+   231 0001:00000816   232 0001:00000837   235 0001:0000083C   236 0001:00000847
+   237 0001:0000084F   238 0001:00000866   242 0001:0000086C   243 0001:0000086F
+   247 0001:00000870   248 0001:00000874   252 0001:00000878   253 0001:0000087B
+   258 0001:0000087C   259 0001:0000087F   260 0001:0000088C   263 0001:00000890
+   264 0001:00000893   265 0001:0000089D   266 0001:000008A7   268 0001:000008DC
+   268 0001:000008E3
+
+Line numbers for dcutypespkg(dcutypespkg.dpk) segment .text
+
+    16 0001:00000984
+
+Bound resource files
+
+C:\users\builder\AppData\Local\Temp\dtf2bd4.tmp
+
+
+Program entry point at 0001:00000984

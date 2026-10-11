@@ -1,0 +1,195 @@
+
+ Start         Length     Name                   Class
+ 0001:00401000 00001070H .text                   CODE
+ 0002:00403000 000001CCH .itext                  ICODE
+ 0003:00404000 00000080H .data                   DATA
+ 0004:00405000 0000001CH .bss                    BSS
+ 0005:00000000 00000000H .tls                    TLS
+ 0006:00400000 00000000H .pdata                  PDATA
+
+
+Detailed map of segments
+
+ 0001:00000000 000000D8 C=CODE     S=.text    G=(none)   M=System   ACBP=A9
+ 0001:000000D8 00000BEC C=CODE     S=.text    G=(none)   M=SysInit  ACBP=A9
+ 0001:00000CC4 00000008 C=CODE     S=.text    G=(none)   M=System.UITypes ACBP=A9
+ 0001:00000CCC 00000008 C=CODE     S=.text    G=(none)   M=Winapi.Windows.PkgHelper ACBP=A9
+ 0001:00000CD4 00000008 C=CODE     S=.text    G=(none)   M=Winapi.PsAPI ACBP=A9
+ 0001:00000CDC 00000008 C=CODE     S=.text    G=(none)   M=System.Character ACBP=A9
+ 0001:00000CE4 00000008 C=CODE     S=.text    G=(none)   M=System.Internal.ExcUtils ACBP=A9
+ 0001:00000CEC 00000028 C=CODE     S=.text    G=(none)   M=System.SysUtils ACBP=A9
+ 0001:00000D14 00000008 C=CODE     S=.text    G=(none)   M=System.VarUtils ACBP=A9
+ 0001:00000D1C 00000008 C=CODE     S=.text    G=(none)   M=System.Variants ACBP=A9
+ 0001:00000D24 00000008 C=CODE     S=.text    G=(none)   M=System.TypInfo ACBP=A9
+ 0001:00000D2C 00000008 C=CODE     S=.text    G=(none)   M=System.Math ACBP=A9
+ 0001:00000D34 00000018 C=CODE     S=.text    G=(none)   M=System.Generics.Defaults ACBP=A9
+ 0001:00000D4C 00000008 C=CODE     S=.text    G=(none)   M=System.TimeSpan ACBP=A9
+ 0001:00000D54 00000008 C=CODE     S=.text    G=(none)   M=System.SyncObjs ACBP=A9
+ 0001:00000D5C 00000010 C=CODE     S=.text    G=(none)   M=System.Rtti ACBP=A9
+ 0001:00000D6C 00000060 C=CODE     S=.text    G=(none)   M=System.Classes ACBP=A9
+ 0001:00000DCC 00000008 C=CODE     S=.text    G=(none)   M=gtshared ACBP=A9
+ 0001:00000DD4 0000029C C=CODE     S=.text    G=(none)   M=usepkg   ACBP=A9
+ 0002:00000000 00000008 C=ICODE    S=.itext   G=(none)   M=System   ACBP=A9
+ 0002:00000008 00000008 C=ICODE    S=.itext   G=(none)   M=SysInit  ACBP=A9
+ 0002:00000010 00000008 C=ICODE    S=.itext   G=(none)   M=System.UITypes ACBP=A9
+ 0002:00000018 00000008 C=ICODE    S=.itext   G=(none)   M=Winapi.Windows.PkgHelper ACBP=A9
+ 0002:00000020 00000008 C=ICODE    S=.itext   G=(none)   M=Winapi.PsAPI ACBP=A9
+ 0002:00000028 00000008 C=ICODE    S=.itext   G=(none)   M=System.Character ACBP=A9
+ 0002:00000030 00000008 C=ICODE    S=.itext   G=(none)   M=System.Internal.ExcUtils ACBP=A9
+ 0002:00000038 00000028 C=ICODE    S=.itext   G=(none)   M=System.SysUtils ACBP=A9
+ 0002:00000060 00000008 C=ICODE    S=.itext   G=(none)   M=System.VarUtils ACBP=A9
+ 0002:00000068 00000008 C=ICODE    S=.itext   G=(none)   M=System.Variants ACBP=A9
+ 0002:00000070 00000008 C=ICODE    S=.itext   G=(none)   M=System.TypInfo ACBP=A9
+ 0002:00000078 00000008 C=ICODE    S=.itext   G=(none)   M=System.Math ACBP=A9
+ 0002:00000080 00000018 C=ICODE    S=.itext   G=(none)   M=System.Generics.Defaults ACBP=A9
+ 0002:00000098 00000008 C=ICODE    S=.itext   G=(none)   M=System.TimeSpan ACBP=A9
+ 0002:000000A0 00000008 C=ICODE    S=.itext   G=(none)   M=System.SyncObjs ACBP=A9
+ 0002:000000A8 00000010 C=ICODE    S=.itext   G=(none)   M=System.Rtti ACBP=A9
+ 0002:000000B8 00000040 C=ICODE    S=.itext   G=(none)   M=System.Classes ACBP=A9
+ 0002:000000F8 000000D4 C=ICODE    S=.itext   G=(none)   M=usepkg   ACBP=A9
+ 0003:00000000 00000078 C=DATA     S=.data    G=DGROUP   M=SysInit  ACBP=A9
+ 0004:00000000 0000001C C=BSS      S=.bss     G=DGROUP   M=SysInit  ACBP=A9
+
+
+  Address             Publics by Name
+
+ 0001:00000DCC       gtshared.MakeShared
+ 0001:00000C94       SysInit...
+ 0001:00000C48       SysInit...
+ 0001:00000C30       SysInit...
+ 0001:00000C00       SysInit...
+ 0001:00000BEC       SysInit...
+ 0001:00000BDC       SysInit...
+ 0001:00000BCC       SysInit...
+ 0001:00000BBC       SysInit...
+ 0001:00000BAC       SysInit...
+ 0003:00000024       SysInit...
+ 0001:00000B9C       SysInit...
+ 0001:00000C70       SysInit...
+ 0001:00000CA4       SysInit...
+ 0004:00000014       SysInit..1
+ 0001:00000698       SysInit.@InitExe
+ 0001:00000178       SysInit.@_dbkDummyProc
+ 0001:0000017C       SysInit.@_dbkFCallArgs
+ 0001:0000056C       SysInit.@_dbk_fcall_wrapper
+ 0001:000006EC       SysInit.@_delayLoadHelper2
+ 0001:000009CC       SysInit.@_FUnloadDelayLoadedDLL2
+ 0001:00000ADC       SysInit.@_HrLoadAllImportsForDll
+ 0004:00000010       SysInit.@_pfnDliFailureHook2
+ 0004:0000000C       SysInit.@_pfnDliNotifyHook2
+ 0004:00000008       SysInit.dbkFCallWrapperAddr
+ 0001:00000CB4       SysInit.Finalization
+ 0001:000000E8       SysInit.FreeLibrary
+ 0001:00000108       SysInit.GetLastError
+ 0001:000000F0       SysInit.GetModuleHandle
+ 0001:00000120       SysInit.GetProcAddress
+ 0004:00000000       SysInit.HInstance
+ 0001:0000016C       SysInit.InitializeModule
+ 0001:000000D8       SysInit.InterlockedExchange
+ 0001:00000128       SysInit.isWine
+ 0001:00000110       SysInit.LoadLibraryA
+ 0001:000000F8       SysInit.LocalAlloc
+ 0001:00000100       SysInit.LocalFree
+ 0003:00000008       SysInit.Module
+ 0003:00000004       SysInit.PtrToNil
+ 0001:00000118       SysInit.RaiseException
+ 0001:00000B94       SysInit.ShutdownDelayHelp2
+ 0002:00000008       SysInit.SysInit
+ 0003:00000000       SysInit.TlsIndex
+ 0004:00000018       SysInit.UseTlsAPI
+ 0004:FFFFB000       SysInit.__ImageBase
+ 0001:000000A0       System.@DoneExcept
+ 0001:000000B0       System.@Halt0
+ 0001:00000090       System.@HandleAnyException
+ 0001:00000098       System.@HandleFinally
+ 0001:000000A8       System.@StartExe
+ 0001:000000B8       System.@UStrArrayClr
+ 0001:000000C0       System.@UStrAsg
+ 0001:00000008       System.@Write0UString
+ 0001:00000010       System.@Write0WChar
+ 0001:00000018       System.@WriteLn
+ 0001:00000000       System.@_IOTest
+ 0001:000000D0       System.Finalization
+ 0001:000000C8       System.RegisterModule
+ 0002:00000000       System.System
+ 0001:00000078       System.TObject.AfterConstruction
+ 0001:00000080       System.TObject.BeforeDestruction
+ 0001:00000020       System.TObject.ClassName
+ 0001:00000028       System.TObject.ClassParent
+ 0001:00000040       System.TObject.Create
+ 0001:00000070       System.TObject.DefaultHandler
+ 0001:00000088       System.TObject.Dispatch
+ 0001:00000050       System.TObject.Equals
+ 0001:00000048       System.TObject.Free
+ 0001:00000038       System.TObject.FreeInstance
+ 0001:00000058       System.TObject.GetHashCode
+ 0001:00000030       System.TObject.NewInstance
+ 0001:00000060       System.TObject.SafeCallException
+ 0001:00000068       System.TObject.ToString
+ 0001:00000CDC       System.Character.Finalization
+ 0002:00000028       System.Character.System.Character
+ 0001:00000DC4       System.Classes.Finalization
+ 0002:000000F0       System.Classes.System.Classes
+ 0002:000000E8       System.Classes.TBaseAsyncResult.Create@
+ 0001:00000DBC       System.Classes.TBaseAsyncResult.Destroy@
+ 0002:000000C0       System.Classes.TBinaryWriter.Create@
+ 0001:00000DA4       System.Classes.TBinaryWriter.Destroy@
+ 0002:000000D8       System.Classes.TComponent.Create@
+ 0001:00000D6C       System.Classes.TComponent.Destroy@
+ 0002:000000C8       System.Classes.TFieldsCache.Create@
+ 0001:00000D74       System.Classes.TFieldsCache.Destroy@
+ 0002:000000E0       System.Classes.TLoginCredentialService.Create@
+ 0001:00000DAC       System.Classes.TLoginCredentialService.Destroy@
+ 0002:000000B8       System.Classes.TObserverMapping.Create@
+ 0001:00000DB4       System.Classes.TObserverMapping.Destroy@
+ 0001:00000D84       System.Classes.TPersistent.Assign
+ 0001:00000D8C       System.Classes.TPersistent.AssignTo
+ 0001:00000D94       System.Classes.TPersistent.DefineProperties
+ 0001:00000D7C       System.Classes.TPersistent.Destroy
+ 0002:000000D0       System.Classes.TThread.Create@
+ 0001:00000D9C       System.Classes.TThread.Destroy@
+ 0002:00000088       System.Generics.Defaults.TIStringComparer.Create@
+ 0001:00000D3C       System.Generics.Defaults.TIStringComparer.Destroy@
+ 0002:00000090       System.Generics.Defaults.TPointerComparer.Create@
+ 0001:00000D44       System.Generics.Defaults.TPointerComparer.Destroy@
+ 0002:00000080       System.Generics.Defaults.TStringComparer.Create@
+ 0001:00000D34       System.Generics.Defaults.TStringComparer.Destroy@
+ 0001:00000CE4       System.Internal.ExcUtils.Finalization
+ 0002:00000030       System.Internal.ExcUtils.System.Internal.ExcUtils
+ 0001:00000D2C       System.Math.Finalization
+ 0002:00000078       System.Math.System.Math
+ 0001:00000D64       System.Rtti.Finalization
+ 0002:000000B0       System.Rtti.System.Rtti
+ 0002:000000A8       System.Rtti.TValue.Create@
+ 0001:00000D5C       System.Rtti.TValue.Destroy@
+ 0001:00000D54       System.SyncObjs.Finalization
+ 0002:000000A0       System.SyncObjs.System.SyncObjs
+ 0002:00000048       System.SysUtils.Exception.Create@
+ 0001:00000CF4       System.SysUtils.Exception.Destroy@
+ 0001:00000D0C       System.SysUtils.Finalization
+ 0002:00000058       System.SysUtils.System.SysUtils
+ 0002:00000040       System.SysUtils.TEncoding.Create@
+ 0001:00000D04       System.SysUtils.TEncoding.Destroy@
+ 0002:00000038       System.SysUtils.TLanguages.Create@
+ 0001:00000CFC       System.SysUtils.TLanguages.Destroy@
+ 0002:00000050       System.SysUtils.TOSVersion.Create@
+ 0001:00000CEC       System.SysUtils.TOSVersion.Destroy@
+ 0002:00000098       System.TimeSpan.TTimeSpan.Create@
+ 0001:00000D4C       System.TimeSpan.TTimeSpan.Destroy@
+ 0001:00000D24       System.TypInfo.Finalization
+ 0002:00000070       System.TypInfo.System.TypInfo
+ 0001:00000CC4       System.UITypes.Finalization
+ 0002:00000010       System.UITypes.System.UITypes
+ 0001:00000D1C       System.Variants.Finalization
+ 0002:00000068       System.Variants.System.Variants
+ 0001:00000D14       System.VarUtils.Finalization
+ 0002:00000060       System.VarUtils.System.VarUtils
+ 0001:00000DD4       usepkg..TGTLocal
+ 0001:00000EB4       usepkg.Finalization
+ 0002:000000F8       usepkg.usepkg
+ 0001:00000CD4       Winapi.PsAPI.Finalization
+ 0002:00000020       Winapi.PsAPI.Winapi.PsAPI
+ 0001:00000CCC       Winapi.Windows.PkgHelper.Finalization
+ 0002:00000018       Winapi.Windows.PkgHelper.Winapi.Windows.PkgHelper
+
+

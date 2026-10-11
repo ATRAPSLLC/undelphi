@@ -161,8 +161,8 @@ fn known_rtti_fpc_win64() {
 /// ancestry, and published methods decode identically, but published
 /// **property types** don't resolve - the 3.0.4 `TPropInfo` layout differs
 /// from 3.2.2 (the `prop_type_ref` reads a non-null but non-resolving VA).
-/// This test pins the version-stable subset and documents the difference;
-/// fixing 3.0.4 property-type resolution is tracked in `TODO.md`.
+/// This test pins the version-stable subset and documents the difference:
+/// 3.0.4 property types are not resolved.
 #[test]
 fn known_rtti_fpc304_win32_subset() {
     let Some(data) = load("known-rtti/known304.win32.exe") else {

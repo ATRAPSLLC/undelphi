@@ -1,0 +1,16 @@
+package dcutypespkg;
+
+{ A runtime package around the dcutypes unit: its export table names every
+  routine of the unit under its Borland-mangled name, the answer key for
+  the export-name generator (undelphi::dcu::mangle). }
+
+{$DESCRIPTION 'undelphi DCU fixture package'}
+{$RUNONLY}
+
+requires
+  rtl;
+
+contains
+  dcutypes in 'dcutypes.pas';
+
+end.

@@ -160,20 +160,15 @@ mod tests {
             b"alClient",
             b"alCustom",
         ];
-        let enum_info = EnumInfo {
-            header: TypeHeader {
-                va: 0,
-                kind_byte: 3,
-                kind: TypeKind::Enumeration,
-                name: b"TAlign",
-            },
-            ord: OrdinalType::UByte,
-            min: 0,
-            max: 6,
-            base_type_ref: 0,
+        let enum_info = EnumInfo::new(
+            TypeHeader::new(0, 3, TypeKind::Enumeration, b"TAlign"),
+            OrdinalType::UByte,
+            0,
+            6,
+            0,
             values,
-            unit_name: None,
-        };
+            None,
+        );
         let detail = TypeDetail::Enumeration(enum_info);
         let rendered = render_value(&DfmValue::Int(5), Some(&detail));
         assert_eq!(rendered, "alClient");
@@ -181,20 +176,15 @@ mod tests {
 
     #[test]
     fn render_int_out_of_range_falls_back() {
-        let enum_info = EnumInfo {
-            header: TypeHeader {
-                va: 0,
-                kind_byte: 3,
-                kind: TypeKind::Enumeration,
-                name: b"TFoo",
-            },
-            ord: OrdinalType::UByte,
-            min: 0,
-            max: 2,
-            base_type_ref: 0,
-            values: vec![b"a", b"b", b"c"],
-            unit_name: None,
-        };
+        let enum_info = EnumInfo::new(
+            TypeHeader::new(0, 3, TypeKind::Enumeration, b"TFoo"),
+            OrdinalType::UByte,
+            0,
+            2,
+            0,
+            vec![b"a", b"b", b"c"],
+            None,
+        );
         let detail = TypeDetail::Enumeration(enum_info);
         let rendered = render_value(&DfmValue::Int(99), Some(&detail));
         assert!(rendered.contains("out-of-range"), "got {rendered}");
@@ -202,20 +192,15 @@ mod tests {
 
     #[test]
     fn render_set_with_enum_context() {
-        let enum_info = EnumInfo {
-            header: TypeHeader {
-                va: 0,
-                kind_byte: 3,
-                kind: TypeKind::Enumeration,
-                name: b"TAnchor",
-            },
-            ord: OrdinalType::UByte,
-            min: 0,
-            max: 3,
-            base_type_ref: 0,
-            values: vec![b"akLeft", b"akTop", b"akRight", b"akBottom"],
-            unit_name: None,
-        };
+        let enum_info = EnumInfo::new(
+            TypeHeader::new(0, 3, TypeKind::Enumeration, b"TAnchor"),
+            OrdinalType::UByte,
+            0,
+            3,
+            0,
+            vec![b"akLeft", b"akTop", b"akRight", b"akBottom"],
+            None,
+        );
         // Mask 0b0011 = akLeft + akTop.
         assert_eq!(
             render_set_mask_with_enum(0b0011, &enum_info),
