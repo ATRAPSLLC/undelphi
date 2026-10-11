@@ -52,7 +52,8 @@ use crate::{
         MAX_RECORD_FIELDS, MAX_RECORD_MANAGED_FIELDS,
     },
     util::{
-        deref_va, read_ptr, read_short_string_at_file, read_short_string_at_va, read_u16, read_u32,
+        GENERIC_NAME_CHARS, as_identifier, deref_va, read_ptr, read_short_string_at_file,
+        read_short_string_at_va, read_u16, read_u32,
     },
     vmt::{Vmt, VmtFlavor},
 };
@@ -73,7 +74,7 @@ const _: () = {
     assert!(tkclass_byte(VmtFlavor::Fpc) == 15); // fpc-source/rtl/inc/rttih.inc:32
 };
 
-/// Map a raw TTypeKind byte to the unified [`TypeKind`] enum, given the
+/// Maps a raw TTypeKind byte to the unified [`TypeKind`] enum, given the
 /// flavor that emitted the binary. Because FPC reorders the enum, the
 /// same byte value means different things in each flavor.
 pub fn classify_kind_byte(byte: u8, flavor: VmtFlavor) -> TypeKind {
@@ -185,7 +186,7 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
-    /// Decode a raw byte. Values outside the documented range map to
+    /// Decodes a raw byte. Values outside the documented range map to
     /// [`TypeKind::Unknown`] rather than causing a parse failure.
     pub fn from_u8(b: u8) -> Self {
         match b {
@@ -254,7 +255,8 @@ pub struct TkClassInfo<'a> {
 }
 
 impl<'a> TkClassInfo<'a> {
-    /// Class name as `&str`, lossily decoded.
+    /// Class name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn class_name(&self) -> &'a str {
         str::from_utf8(self.class_name).unwrap_or("<non-ascii>")
@@ -264,7 +266,8 @@ impl<'a> TkClassInfo<'a> {
     pub fn class_name_bytes(&self) -> &'a [u8] {
         self.class_name
     }
-    /// Unit name as `&str`, lossily decoded.
+    /// Unit name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn unit_name(&self) -> &'a str {
         str::from_utf8(self.unit_name).unwrap_or("<non-ascii>")
@@ -277,7 +280,7 @@ impl<'a> TkClassInfo<'a> {
 }
 
 impl<'a> TkClassInfo<'a> {
-    /// Decode the `tkClass` TypeInfo record referenced by a class's VMT.
+    /// Decodes the `tkClass` TypeInfo record referenced by a class's VMT.
     ///
     /// Returns `None` when `vmtTypeInfo` is null, the VA cannot be
     /// translated, the Kind byte is not the `tkClass` value for this
@@ -289,7 +292,7 @@ impl<'a> TkClassInfo<'a> {
         Self::from_va(ctx, vmt.type_info, vmt.pointer_size as usize, vmt.flavor)
     }
 
-    /// Resolve a `ParentInfo` (`PPTypeInfo`) value into the parent
+    /// Resolves a `ParentInfo` (`PPTypeInfo`) value into the parent
     /// class's `tkClass` record.
     pub fn from_parent_info(
         ctx: &BinaryContext<'a>,
@@ -301,7 +304,7 @@ impl<'a> TkClassInfo<'a> {
         Self::from_va(ctx, type_info_va, ptr_size, flavor)
     }
 
-    /// Decode a `tkClass` TypeInfo at an arbitrary VA, given the flavor
+    /// Decodes a `tkClass` TypeInfo at an arbitrary VA, given the flavor
     /// that produced the binary (determines which byte value to expect
     /// for `tkClass`).
     pub fn from_va(
@@ -377,16 +380,7 @@ fn va_at(va: u64, start: usize, end: usize) -> Option<u64> {
 /// names but allows lowercase (unit names conventionally begin with a
 /// capital but `SysInit`/`system`/etc. can appear lower).
 fn is_plausible_identifier(name: &[u8]) -> bool {
-    if name.is_empty() || name.len() > MAX_IDENTIFIER_BYTES {
-        return false;
-    }
-    name.iter().all(|&b| {
-        b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'_' | b'.' | b'<' | b'>' | b',' | b':' | b'&' | b'@' | b' '
-            )
-    })
+    name.len() <= MAX_IDENTIFIER_BYTES && as_identifier(name, &GENERIC_NAME_CHARS).is_some()
 }
 
 /// A minimally-decoded RTTI type record: its Kind byte, classified Kind,
@@ -404,7 +398,7 @@ pub struct TypeHeader<'a> {
 }
 
 impl<'a> TypeHeader<'a> {
-    /// Build a header by hand: the `PTypeInfo` VA, the raw Kind byte, its
+    /// Builds a header by hand: the `PTypeInfo` VA, the raw Kind byte, its
     /// classified [`TypeKind`] and the name bytes. [`Self::from_va`] decodes
     /// one from a binary.
     pub fn new(va: u64, kind_byte: u8, kind: TypeKind, name: &'a [u8]) -> Self {
@@ -416,7 +410,8 @@ impl<'a> TypeHeader<'a> {
         }
     }
 
-    /// Type name as `&str`, lossily decoded.
+    /// Type name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -435,7 +430,7 @@ impl<'a> TypeHeader<'a> {
         Some(self.va..self.va.checked_add(len)?)
     }
 
-    /// Decode the type header (Kind + Name) at a `PTypeInfo` VA.
+    /// Decodes the type header (Kind + Name) at a `PTypeInfo` VA.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         if type_info_va == 0 {
             return None;
@@ -460,8 +455,8 @@ impl<'a> TypeHeader<'a> {
         })
     }
 
-    /// Follow a `PPTypeInfo` (pointer-to-pointer-to-PTypeInfo)
-    /// indirection and return the target type header. Delphi's
+    /// Follows a `PPTypeInfo` (pointer-to-pointer-to-PTypeInfo)
+    /// indirection and returns the target type header. Delphi's
     /// `PropType` field in `TPropInfo` is stored as a `PPTypeInfo`.
     pub fn from_pptr(
         ctx: &BinaryContext<'a>,
@@ -473,7 +468,7 @@ impl<'a> TypeHeader<'a> {
         Self::from_va(ctx, type_info_va, flavor)
     }
 
-    /// Dereference a `PPTypeInfo` VA once, returning the `PTypeInfo` VA
+    /// Dereferences a `PPTypeInfo` VA once, returning the `PTypeInfo` VA
     /// it points at. Returns `None` when either VA is null or unmapped.
     #[inline]
     pub fn deref_pptypeinfo(ctx: &BinaryContext<'_>, pp_va: u64, ptr_size: usize) -> Option<u64> {
@@ -582,7 +577,7 @@ pub struct EnumInfo<'a> {
 }
 
 impl<'a> EnumInfo<'a> {
-    /// Build an enumeration by hand, e.g. to render the values of a type
+    /// Builds an enumeration by hand, e.g. to render the values of a type
     /// known from another source. [`Self::from_va`] decodes one from a
     /// binary; a hand-built one's [`TypeDetail::extent`] covers only its
     /// header.
@@ -608,8 +603,9 @@ impl<'a> EnumInfo<'a> {
         }
     }
 
-    /// Unit name the enumeration was declared in, as `&str`, lossily
-    /// decoded.
+    /// Unit name the enumeration was declared in: UTF-8, as Delphi 2009 and
+    /// later store names, or `"<non-ascii>"` when the bytes are not valid
+    /// UTF-8.
     #[inline]
     pub fn unit_name(&self) -> Option<&'a str> {
         self.unit_name
@@ -623,7 +619,7 @@ impl<'a> EnumInfo<'a> {
 }
 
 impl<'a> EnumInfo<'a> {
-    /// Decode a `tkEnumeration` record at `type_info_va`.
+    /// Decodes a `tkEnumeration` record at `type_info_va`.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         Self::decode(ctx, type_info_va, flavor, true)
     }
@@ -872,7 +868,8 @@ pub struct DynArrayInfo<'a> {
 }
 
 impl<'a> DynArrayInfo<'a> {
-    /// Unit name as `&str`, lossily decoded.
+    /// Unit name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn unit_name(&self) -> Option<&'a str> {
         self.unit_name
@@ -906,7 +903,8 @@ pub struct InterfaceTypeInfo<'a> {
 }
 
 impl<'a> InterfaceTypeInfo<'a> {
-    /// Unit name as `&str`, lossily decoded.
+    /// Unit name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn unit_name(&self) -> Option<&'a str> {
         self.unit_name
@@ -954,7 +952,8 @@ impl<'a> RecordField<'a> {
         Visibility::from_flags(self.flags)
     }
 
-    /// Field name as `&str`, lossily decoded.
+    /// Field name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -1040,7 +1039,8 @@ pub struct RecordMethod<'a> {
 }
 
 impl<'a> RecordMethod<'a> {
-    /// The method name, lossily decoded.
+    /// The method name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when
+    /// the bytes are not valid UTF-8.
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
     }
@@ -1077,7 +1077,7 @@ pub struct PointerInfo<'a> {
 }
 
 impl<'a> PointerInfo<'a> {
-    /// Decode a `tkPointer` record. The `TypeData` is a single `PPTypeInfo`
+    /// Decodes a `tkPointer` record. The `TypeData` is a single `PPTypeInfo`
     /// at offset 0 (pythia `pythia/core/structures.py:146-149`).
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
@@ -1125,7 +1125,7 @@ pub struct ArrayInfo<'a> {
 }
 
 impl<'a> ArrayInfo<'a> {
-    /// Decode a `tkArray` record. `TypeData` is `Size: u32`, `ElCount: u32`,
+    /// Decodes a `tkArray` record. `TypeData` is `Size: u32`, `ElCount: u32`,
     /// `ElType: PPTypeInfo` (pythia `pythia/core/structures.py:165-172`,
     /// matching Delphi's `TArrayTypeData`). The trailing dimension table is
     /// not decoded here.
@@ -1356,7 +1356,7 @@ impl<'a> TypeDetail<'a> {
 }
 
 impl<'a> OrdinalInfo<'a> {
-    /// Decode a `tkInteger` / `tkChar` / `tkWChar` record.
+    /// Decodes a `tkInteger` / `tkChar` / `tkWChar` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if !matches!(
@@ -1400,7 +1400,7 @@ pub struct ShortStringInfo<'a> {
 }
 
 impl<'a> ShortStringInfo<'a> {
-    /// Decode a `tkString` record.
+    /// Decodes a `tkString` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::String {
@@ -1440,7 +1440,7 @@ pub struct Int64Info<'a> {
 }
 
 impl<'a> Int64Info<'a> {
-    /// Decode a `tkInt64` / `tkQWord` record.
+    /// Decodes a `tkInt64` / `tkQWord` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Int64 {
@@ -1471,7 +1471,7 @@ impl<'a> Int64Info<'a> {
 }
 
 impl<'a> FloatInfo<'a> {
-    /// Decode a `tkFloat` record.
+    /// Decodes a `tkFloat` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Float {
@@ -1496,7 +1496,7 @@ impl<'a> FloatInfo<'a> {
 }
 
 impl<'a> SetInfo<'a> {
-    /// Decode a `tkSet` record and resolve the element-enumeration
+    /// Decodes a `tkSet` record and resolves the element-enumeration
     /// type, if reachable.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
@@ -1558,7 +1558,7 @@ impl<'a> SetInfo<'a> {
 }
 
 impl<'a> ClassRefInfo<'a> {
-    /// Decode a `tkClassRef` record.
+    /// Decodes a `tkClassRef` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::ClassRef {
@@ -1586,7 +1586,7 @@ impl<'a> ClassRefInfo<'a> {
 }
 
 impl<'a> DynArrayInfo<'a> {
-    /// Decode a `tkDynArray` record.
+    /// Decodes a `tkDynArray` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::DynArray {
@@ -1640,7 +1640,7 @@ impl<'a> InterfaceTypeInfo<'a> {
         self.end
     }
 
-    /// Decode a `tkInterface` record.
+    /// Decodes a `tkInterface` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Interface {
@@ -1708,7 +1708,7 @@ pub enum MethodKind {
 }
 
 impl MethodKind {
-    /// Map a raw `TMethodKind` ordinal; out-of-range values map to
+    /// Maps a raw `TMethodKind` ordinal; out-of-range values map to
     /// [`MethodKind::Unknown`].
     pub fn from_u8(b: u8) -> Self {
         match b {
@@ -1738,7 +1738,8 @@ pub struct MethodParam<'a> {
 }
 
 impl<'a> MethodParam<'a> {
-    /// Parameter name as `&str`, lossily decoded.
+    /// Parameter name as `&str`: UTF-8, as Delphi 2009 and later store names, or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -1748,7 +1749,8 @@ impl<'a> MethodParam<'a> {
     pub fn name_bytes(&self) -> &'a [u8] {
         self.name
     }
-    /// Parameter type name as `&str`, lossily decoded. Unlike class RTTI,
+    /// Parameter type name as `&str`: UTF-8, as Delphi 2009 and later store names, or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8. Unlike class RTTI,
     /// method RTTI stores the parameter's type as a textual identifier
     /// rather than a `PPTypeInfo`.
     #[inline]
@@ -1814,7 +1816,8 @@ pub struct SignatureParam<'a> {
 }
 
 impl<'a> SignatureParam<'a> {
-    /// Parameter name as `&str`, lossily decoded.
+    /// Parameter name as `&str`: UTF-8, as Delphi 2009 and later store names, or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -1882,7 +1885,7 @@ pub struct StringInfo<'a> {
 }
 
 impl<'a> MethodInfo<'a> {
-    /// Decode a `tkMethod` record.
+    /// Decodes a `tkMethod` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Method {
@@ -1977,7 +1980,7 @@ impl<'a> MethodInfo<'a> {
     }
 }
 
-/// Parse the modern `tkMethod` reference trailer at `cursor` (after the
+/// Parses the modern `tkMethod` reference trailer at `cursor` (after the
 /// name-based parameter list and result-type string). Returns
 /// `(param_type_refs, result_type_ref)` or `None` if the layout isn't
 /// present / doesn't validate.
@@ -2054,7 +2057,7 @@ fn parse_method_modern_refs<'a>(
 }
 
 impl<'a> ProcedureInfo<'a> {
-    /// Decode a `tkProcedure` record, including its inline
+    /// Decodes a `tkProcedure` record, including its inline
     /// `TProcedureSignature` (`Flags: u8`, `CC: u8`, `ResultTypeRef: ptr`,
     /// `ParamCount: u8`, then `{ParamFlags: u8, ParamTypeRef: ptr, Name:
     /// ShortString}` per parameter).
@@ -2108,7 +2111,7 @@ impl<'a> ProcedureInfo<'a> {
     }
 }
 
-/// Decode an inline `TProcedureSignature` at `td` (file offset), returning a
+/// Decodes an inline `TProcedureSignature` at `td` (file offset), returning a
 /// fully-populated [`ProcedureInfo`] or `None` if it fails validation.
 fn decode_procedure_signature<'a>(
     ctx: &BinaryContext<'a>,
@@ -2258,7 +2261,7 @@ impl<'a> StringInfo<'a> {
 }
 
 impl<'a> RecordInfo<'a> {
-    /// Decode a `tkRecord` record including its managed-field entries.
+    /// Decodes a `tkRecord` record including its managed-field entries.
     ///
     /// Accepts records with an empty on-disk name - the compiler
     /// emits `vmtInitTable` as a synthetic `tkRecord` with no name
@@ -2472,8 +2475,8 @@ fn parse_record_tail<'a>(
     })
 }
 
-/// Sweep the binary's read-only data for every FPC `tkInterface` record
-/// and index them by GUID. Used by
+/// Sweeps the binary's read-only data for every FPC `tkInterface` record
+/// and indexes them by GUID. Used by
 /// [`crate::DelphiBinary::interface_methods`] to recover per-method
 /// names: the per-class `InterfaceEntry` carries the GUID but no
 /// pointer to the tkInterface PTypeInfo, so we have to find it by
@@ -2529,7 +2532,7 @@ pub struct IntfMethodTable<'a> {
 }
 
 impl<'a> IntfMethodTable<'a> {
-    /// Decode the method table referenced by an FPC `tkInterface`
+    /// Decodes the method table referenced by an FPC `tkInterface`
     /// `PTypeInfo` record at `tkintf_va`.
     ///
     /// Returns `None` when the layout doesn't parse cleanly. The
@@ -2712,7 +2715,8 @@ impl<'a> IntfMethodEntry<'a> {
         self.slot
     }
 
-    /// Method name as `&str`, lossily decoded.
+    /// Method name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -2788,7 +2792,7 @@ const MAX_INTF_METHODS: usize = 1024;
 mod tests {
     use super::*;
 
-    /// Lock every documented Delphi TTypeKind byte against
+    /// Locks every documented Delphi TTypeKind byte against
     /// pythia `pythia/core/structures.py:11-34`.
     /// If a future refactor renumbers or drops a variant, this test
     /// flags it before silent misdecoding ships.
@@ -2829,7 +2833,7 @@ mod tests {
         }
     }
 
-    /// Lock the FPC TTypeKind ordering from
+    /// Locks the FPC TTypeKind ordering from
     /// FPC `rtl/inc/rttih.inc:29-34`. FPC reorders the
     /// enum vs Delphi (e.g. tkClass is 15 in FPC vs 7 in Delphi); the
     /// table below is the authoritative byte → kind translation we use

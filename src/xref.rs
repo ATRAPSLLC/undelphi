@@ -75,7 +75,7 @@ pub struct UnitStats {
     pub total_instance_bytes: u64,
 }
 
-/// Compute per-unit statistics for every unit the class set references.
+/// Computes per-unit statistics for every unit the class set references.
 pub fn unit_stats(bin: &DelphiBinary<'_>) -> Vec<UnitStats> {
     let mut by_unit: HashMap<String, UnitStats> = HashMap::new();
     for c in bin.classes().iter() {
@@ -201,7 +201,7 @@ fn collect_bindings(
     }
 }
 
-/// Pivot `event_bindings()` into a map keyed by method name →
+/// Pivots `event_bindings()` into a map keyed by method name →
 /// list of events that bind to it.
 pub fn events_by_method(bin: &DelphiBinary<'_>) -> BTreeMap<String, Vec<HandlerBinding>> {
     let mut by_method: BTreeMap<String, Vec<HandlerBinding>> = BTreeMap::new();
@@ -211,7 +211,7 @@ pub fn events_by_method(bin: &DelphiBinary<'_>) -> BTreeMap<String, Vec<HandlerB
     by_method
 }
 
-/// Format an interface key. Non-zero GUID → canonical form; otherwise the
+/// Formats an interface key. Non-zero GUID → canonical form; otherwise the
 /// Corba IID-string when available; else `<anonymous>`.
 fn format_interface_key(guid: &Guid, iid_str: Option<&[u8]>) -> String {
     let zero =

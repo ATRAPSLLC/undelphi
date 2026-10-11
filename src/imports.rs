@@ -155,9 +155,10 @@ impl BorlandSymbol {
     ///
     /// Generic instances are rendered as RTTI names them
     /// (`TDictionary<System.UnicodeString,Vcl.Themes.TStyleHook>`), and so
-    /// are anonymous types (`:N`); see the module docs for the encodings. The unit is everything before the
-    /// first generic segment or, without one, before the last segment - so
-    /// a non-generic nested type keeps its outer type in the unit.
+    /// are anonymous types (`:N`); see the module docs for the encodings.
+    /// The unit is everything before the first generic segment or, without
+    /// one, before the last segment - so a non-generic nested type keeps
+    /// its outer type in the unit.
     pub fn demangle(mangled: &str) -> Option<Self> {
         if mangled.starts_with("_Z") {
             return demangle_itanium(mangled);

@@ -94,7 +94,7 @@ pub enum BlobKind {
 }
 
 impl BlobKind {
-    /// Identify a blob from its leading bytes.
+    /// Identifies a blob from its leading bytes.
     pub fn from_bytes(b: &[u8]) -> Self {
         // Order: longer magics first to disambiguate.
         if b.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -221,7 +221,7 @@ impl fmt::Display for BlobKind {
     }
 }
 
-/// Enumerate every embedded-binary value across every parsed form.
+/// Enumerates every embedded-binary value across every parsed form.
 ///
 /// Takes the pre-extracted forms list so the caller controls lifetime.
 /// Typical call: `catalog(bin.forms())`. Each returned blob carries

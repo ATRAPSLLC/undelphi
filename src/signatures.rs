@@ -30,7 +30,7 @@ use crate::{
     extrtti::{AttributeEntry, Visibility, read_attr_data},
     formats::BinaryContext,
     rtti::TypeHeader,
-    util::{read_ptr, read_short_string_at_file, read_u16},
+    util::{read_ptr, read_short_string_at_file},
     vmt::VmtFlavor,
 };
 
@@ -72,7 +72,7 @@ pub enum MethodKind {
 }
 
 impl MethodKind {
-    /// Map a raw `TMethodKind` ordinal.
+    /// Maps a raw `TMethodKind` ordinal.
     pub fn from_u8(b: u8) -> Self {
         match b {
             0 => MethodKind::Procedure,
@@ -139,7 +139,7 @@ pub enum CallConv {
 }
 
 impl CallConv {
-    /// Map a raw `TCallConv` ordinal.
+    /// Maps a raw `TCallConv` ordinal.
     pub fn from_u8(b: u8) -> Self {
         match b {
             0 => CallConv::Register,
@@ -221,7 +221,7 @@ impl ParamFlags {
     // Delphi `pfResult` is bit 6.
     const DELPHI_PF_RESULT: u16 = 1 << 6;
 
-    /// Construct from a Delphi one-byte `TParamFlags`.
+    /// Constructs from a Delphi one-byte `TParamFlags`.
     pub fn from_delphi(byte: u8) -> Self {
         Self {
             raw: u16::from(byte),
@@ -229,7 +229,7 @@ impl ParamFlags {
         }
     }
 
-    /// Construct from an FPC two-byte `TParamFlags` set.
+    /// Constructs from an FPC two-byte `TParamFlags` set.
     pub fn from_fpc(set: u16) -> Self {
         Self {
             raw: set,
@@ -438,7 +438,7 @@ impl<'a> SignatureReport<'a> {
 }
 
 impl<'a> MethodSignature<'a> {
-    /// Decode a Delphi published-method-table entry trailer.
+    /// Decodes a Delphi published-method-table entry trailer.
     ///
     /// `trailer` is the byte range an entry's `Size` field reserves beyond
     /// the bare `Size + CodeAddr + Name` record (see
@@ -482,7 +482,7 @@ impl<'a> MethodSignature<'a> {
         )
     }
 
-    /// Decode the signature carried by a Delphi extended-method-section
+    /// Decodes the signature carried by a Delphi extended-method-section
     /// entry ([`crate::methods::DelphiExtMethod`]). The entry's `trailer`
     /// has the same layout as the published trailer; this constructor tags
     /// the result [`SignatureSource::DelphiExtendedRtti`] and attaches the
@@ -543,11 +543,9 @@ impl<'a> MethodSignature<'a> {
             let name_off = type_off.checked_add(ptr_size)?.checked_add(2)?;
             let pname = read_short_string_at_file(trailer, name_off)?;
             let (type_name, param_type_va) = resolve_type(ctx, param_type_va, ptr_size, flavor);
-            // Advance past name, then the AttrData block.
+            // The name, then the parameter's AttrData block.
             let after_name = name_off.checked_add(1)?.checked_add(pname.len())?;
-            let attributes = read_attr_data(trailer, after_name, ptr_size)
-                .map(|(a, _)| a)
-                .unwrap_or_default();
+            let (attributes, next) = read_attr_data(trailer, after_name, ptr_size)?;
             params.push(MethodParam {
                 name: bytes_to_name(pname),
                 flags,
@@ -555,7 +553,7 @@ impl<'a> MethodSignature<'a> {
                 type_va: param_type_va,
                 attributes,
             });
-            cursor = skip_attr_data(trailer, after_name)?;
+            cursor = next;
         }
         // The method's own attributes follow its parameters.
         let attributes = read_attr_data(trailer, cursor, ptr_size)
@@ -586,17 +584,7 @@ impl<'a> MethodSignature<'a> {
     }
 }
 
-/// Skip a Delphi `TAttrData` block: a `u16` length whose value includes the
-/// length field itself. A value `< 2` is treated as exactly the 2-byte
-/// field (matching IDR's reader, which advances 2). Returns the offset just
-/// past the block.
-fn skip_attr_data(data: &[u8], off: usize) -> Option<usize> {
-    let len = usize::from(read_u16(data, off)?);
-    let advance = len.max(2);
-    off.checked_add(advance)
-}
-
-/// Resolve a `PPTypeInfo` VA to a borrowed type name, returning the name (or
+/// Resolves a `PPTypeInfo` VA to a borrowed type name, returning the name (or
 /// `None`) alongside the VA (normalised to `0` when null).
 fn resolve_type<'a>(
     ctx: &BinaryContext<'a>,
@@ -611,7 +599,7 @@ fn resolve_type<'a>(
     (name, pptr_va)
 }
 
-/// Convert a short-string body to a name, treating an empty body as `None`.
+/// Converts a short-string body to a name, treating an empty body as `None`.
 fn bytes_to_name(bytes: &[u8]) -> Option<&str> {
     if bytes.is_empty() {
         None
@@ -665,7 +653,7 @@ mod tests {
         assert!(SignatureReport::Unsupported.decoded().is_empty());
     }
 
-    /// Build a 64-bit published-method trailer for two parameters with null
+    /// Builds a 64-bit published-method trailer for two parameters with null
     /// (`0`) type pointers - so decoding walks the byte layout without
     /// needing a populated binary - and confirm the structure parses.
     #[test]

@@ -55,7 +55,7 @@ use goblin::{Object, mach::Mach};
 
 use crate::{
     formats::BinaryContext,
-    util::{read_ptr, read_short_string_at_va},
+    util::{as_identifier, read_ptr, read_short_string_at_va},
 };
 
 /// Hard limit on the number of units we'll trust in any one table -
@@ -65,7 +65,8 @@ const MAX_UNITS_PER_TABLE: usize = 4096;
 /// One unit's init / finalize procedures.
 #[derive(Debug, Clone)]
 pub struct UnitInitProc<'a> {
-    /// Unit name (e.g. `System.SysUtils`), lossily decoded. `"<unknown>"`
+    /// Unit name (e.g. `System.SysUtils`): UTF-8, as Delphi 2009 and later store names, or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8. `"<unknown>"`
     /// when the FPC build didn't emit `FPC_INITFINAL_HASUNITNAME` or the
     /// indirection couldn't be followed.
     pub unit_name: &'a str,
@@ -77,7 +78,7 @@ pub struct UnitInitProc<'a> {
     pub finalize_va: Option<u64>,
 }
 
-/// Walk the FPC `INITFINAL` table for per-unit init / finalize VAs.
+/// Walks the FPC `INITFINAL` table for per-unit init / finalize VAs.
 ///
 /// Returns an empty vector for Delphi-compiled binaries (by design;
 /// Delphi inlines unit init into the entry point - see module docs)
@@ -98,7 +99,7 @@ pub fn iter_unit_init_procs<'a>(ctx: &BinaryContext<'a>) -> Vec<UnitInitProc<'a>
     Vec::new()
 }
 
-/// Look up `INITFINAL` (and aliases) in the binary's symbol table.
+/// Looks up `INITFINAL` (and aliases) in the binary's symbol table.
 fn locate_initfinal_via_symbol(ctx: &BinaryContext<'_>) -> Option<u64> {
     const NAMES: &[&str] = &["INITFINAL", "_INITFINAL", "FPC_INITFINAL"];
     let Ok(obj) = Object::parse(ctx.data()) else {
@@ -143,7 +144,7 @@ fn locate_initfinal_via_symbol(ctx: &BinaryContext<'_>) -> Option<u64> {
     }
 }
 
-/// Decode a candidate INITFINAL table at `va`. Returns `None` if the
+/// Decodes a candidate INITFINAL table at `va`. Returns `None` if the
 /// header looks implausible.
 fn walk_initfinal<'a>(
     ctx: &BinaryContext<'a>,
@@ -196,7 +197,7 @@ fn walk_initfinal<'a>(
     Some(out)
 }
 
-/// Probe the first `count` entries to decide between the with-names and
+/// Probes the first `count` entries to decide between the with-names and
 /// without-names FPC variants. With-names entries have a third pointer
 /// that resolves to a readable shortstring; without-names entries don't
 /// have a third pointer at all (the next bytes belong to the following
@@ -237,7 +238,7 @@ fn probe_with_names(
         let Some(bytes) = read_short_string_at_va(ctx, name_ptr) else {
             return false;
         };
-        if bytes.is_empty() || !looks_like_unit_name(bytes) {
+        if !looks_like_unit_name(bytes) {
             return false;
         }
     }
@@ -245,10 +246,7 @@ fn probe_with_names(
 }
 
 fn looks_like_unit_name(bytes: &[u8]) -> bool {
-    bytes.len() <= 255
-        && bytes
-            .iter()
-            .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'.')
+    as_identifier(bytes, &['.']).is_some()
 }
 
 /// Heuristic shape scan: sweep the binary's data sections for a

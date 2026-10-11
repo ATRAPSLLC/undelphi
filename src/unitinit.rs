@@ -123,7 +123,8 @@ pub struct UnitTypes<'a> {
 }
 
 impl<'a> UnitTypes<'a> {
-    /// Unit name, lossily decoded.
+    /// Unit name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when the
+    /// bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -137,7 +138,7 @@ impl<'a> UnitTypes<'a> {
 }
 
 impl<'a> UnitInitTable<'a> {
-    /// Locate and decode the module's table, from the
+    /// Locates and decodes the module's table, from the
     /// `@GetPackageInfoTable` export or the program entry point. `None` for
     /// non-PE input or when no candidate validates.
     pub fn locate(ctx: &BinaryContext<'a>) -> Option<Self> {
@@ -147,7 +148,7 @@ impl<'a> UnitInitTable<'a> {
             .find_map(|va| Self::decode(ctx, va, ptr_size))
     }
 
-    /// Decode the table at `va`. `None` unless it validates.
+    /// Decodes the table at `va`. `None` unless it validates.
     pub fn decode(ctx: &BinaryContext<'a>, va: u64, ptr_size: usize) -> Option<Self> {
         let data = ctx.data();
         let off = ctx.va_to_file(va)?;

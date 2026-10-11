@@ -41,7 +41,7 @@ pub struct ResourceString {
     pub record_va: Option<u64>,
 }
 
-/// Decode the module's string table and attach each string's
+/// Decodes the module's string table and attach each string's
 /// `resourcestring` record. Empty for non-PE input.
 pub fn resource_strings(ctx: &BinaryContext<'_>) -> Vec<ResourceString> {
     let table = string_table(ctx);

@@ -17,7 +17,7 @@ use crate::{
     rtti::{EnumInfo, TypeDetail, TypeHeader},
 };
 
-/// Pretty-print a DFM value, using the declared type to resolve
+/// Pretty-prints a DFM value, using the declared type to resolve
 /// enumeration ordinals and set bitmaps into their symbolic names.
 ///
 /// `detail` is the resolved property type - typically from
@@ -54,7 +54,7 @@ pub fn render_value(value: &DfmValue<'_>, detail: Option<&TypeDetail<'_>>) -> St
     }
 }
 
-/// Produce just an enumeration value name for an ordinal, or fall back to
+/// Produces just an enumeration value name for an ordinal, or falls back to
 /// a numeric rendering if out of range.
 pub fn render_enum_ordinal(i: i32, info: &EnumInfo<'_>) -> String {
     if i >= info.min
@@ -69,7 +69,7 @@ pub fn render_enum_ordinal(i: i32, info: &EnumInfo<'_>) -> String {
     format!("{} (out-of-range for {}..{})", i, info.min, info.max)
 }
 
-/// Render a set value whose element enumeration has already been decoded.
+/// Renders a set value whose element enumeration has already been decoded.
 pub fn render_set_mask_with_enum(mask: u32, enum_info: &EnumInfo<'_>) -> String {
     let mut names = Vec::new();
     for ord in 0i32..=31 {
@@ -96,7 +96,7 @@ pub fn render_set_mask_with_enum(mask: u32, enum_info: &EnumInfo<'_>) -> String 
     }
 }
 
-/// Render the type portion of a property (e.g. `TCaption [UString]`).
+/// Renders the type portion of a property (e.g. `TCaption [UString]`).
 pub fn render_type_label(header: &TypeHeader<'_>) -> String {
     format!("{} [{:?}]", header.name(), header.kind)
 }

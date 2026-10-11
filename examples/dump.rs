@@ -12,7 +12,6 @@ use undelphi::{
     blobs::{EmbeddedBlob, catalog as catalog_blobs},
     classes::Class,
     dfm::{DfmObject, DfmProperty, DfmValue},
-    extrtti::AttributeEntry,
     fields::FieldTypeRef,
     imports::Import,
     layout::{LayoutKind, reconstruct},
@@ -317,36 +316,32 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
         let psize = class.pointer_size() as usize;
         for e in &ext {
             let mut line = format!("      [{:?}] {:<32}", e.visibility, e.info.name());
-            if !e.attributes_raw.is_empty() {
-                let (attrs, _) = AttributeEntry::decode_block(e.attributes_raw, psize);
-                if !attrs.is_empty() {
-                    let _ = write!(line, "  attrs=[");
-                    for (i, ae) in attrs.iter().enumerate() {
-                        if i > 0 {
-                            let _ = write!(line, ", ");
-                        }
-                        let ty =
-                            TypeHeader::from_pptr(bin.ctx(), ae.attr_type_ref, psize, bin.flavor())
-                                .map(|h| h.name().to_owned())
-                                .unwrap_or_else(|| format!("0x{:x}", ae.attr_type_ref));
-                        let arg = if let Some(s) = ae.arg_as_string() {
-                            format!("({:?})", String::from_utf8_lossy(s))
-                        } else if let Ok(bytes) = ae.arg_data.try_into() {
-                            let v = u32::from_le_bytes(bytes);
-                            format!("({})", v)
-                        } else if let Some(byte) = ae.arg_data.first() {
-                            format!("({})", byte)
-                        } else if ae.arg_data.is_empty() {
-                            String::new()
-                        } else {
-                            format!("(<{} bytes>)", ae.arg_data.len())
-                        };
-                        let _ = write!(line, "{}{}", ty, arg);
+            let attrs = &e.attributes;
+            if !attrs.is_empty() {
+                let _ = write!(line, "  attrs=[");
+                for (i, ae) in attrs.iter().enumerate() {
+                    if i > 0 {
+                        let _ = write!(line, ", ");
                     }
-                    let _ = write!(line, "]");
-                } else {
-                    let _ = write!(line, "  attrs=<{}B raw>", e.attributes_raw.len());
+                    let ty =
+                        TypeHeader::from_pptr(bin.ctx(), ae.attr_type_ref, psize, bin.flavor())
+                            .map(|h| h.name().to_owned())
+                            .unwrap_or_else(|| format!("0x{:x}", ae.attr_type_ref));
+                    let arg = if let Some(s) = ae.arg_as_string() {
+                        format!("({:?})", String::from_utf8_lossy(s))
+                    } else if let Ok(bytes) = ae.arg_data.try_into() {
+                        let v = u32::from_le_bytes(bytes);
+                        format!("({})", v)
+                    } else if let Some(byte) = ae.arg_data.first() {
+                        format!("({})", byte)
+                    } else if ae.arg_data.is_empty() {
+                        String::new()
+                    } else {
+                        format!("(<{} bytes>)", ae.arg_data.len())
+                    };
+                    let _ = write!(line, "{}{}", ty, arg);
                 }
+                let _ = write!(line, "]");
             }
             println!("{}", line);
         }

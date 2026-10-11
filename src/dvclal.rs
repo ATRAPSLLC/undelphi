@@ -61,7 +61,7 @@ const DVCLAL_ENTERPRISE: [u8; 16] = [
     0x26, 0x3D, 0x4F, 0x38, 0xC2, 0x82, 0x37, 0xB8, 0xF3, 0x24, 0x42, 0x03, 0x17, 0x9B, 0x3A, 0x83,
 ];
 
-/// Decode a `DVCLAL` resource body.
+/// Decodes a `DVCLAL` resource body.
 ///
 /// Returns `None` if the buffer is not exactly 16 bytes or does not match any
 /// known signature.

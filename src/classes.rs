@@ -89,7 +89,7 @@ impl<'a> Class<'a> {
         self.vmt.type_info != 0
     }
 
-    /// Resolve this class's parent against a [`ClassSet`]. `None` for root
+    /// Resolves this class's parent against a [`ClassSet`]. `None` for root
     /// classes (`TObject`) and for classes whose parent VMT lies outside
     /// the scanned region.
     #[inline]
@@ -105,10 +105,11 @@ pub struct ClassSet<'a> {
     classes: Vec<Class<'a>>,
     by_vmt_va: HashMap<u64, usize>,
     by_name: HashMap<&'a str, usize>,
+    by_type_info: HashMap<u64, usize>,
 }
 
 impl<'a> ClassSet<'a> {
-    /// Scan `ctx` and build a complete class set.
+    /// Scans `ctx` and builds a complete class set.
     ///
     /// This runs the VMT scanner from [`crate::vmt::scan`] and resolves
     /// parent relationships in a second pass.
@@ -117,7 +118,7 @@ impl<'a> ClassSet<'a> {
         Self::from_vmts_with_ctx(vmts, Some(ctx))
     }
 
-    /// Build a class set from a pre-computed VMT list, without the binary
+    /// Builds a class set from a pre-computed VMT list, without the binary
     /// context. Used by unit tests; production callers should use
     /// [`Self::from_ctx`] so that FPC's indirect parent references can be
     /// dereferenced.
@@ -138,11 +139,15 @@ impl<'a> ClassSet<'a> {
 
         let mut classes = Vec::with_capacity(vmts.len());
         let mut by_name: HashMap<&'a str, usize> = HashMap::with_capacity(vmts.len());
+        let mut by_type_info: HashMap<u64, usize> = HashMap::with_capacity(vmts.len());
         for (i, vmt) in vmts.into_iter().enumerate() {
             let parent_index = resolve_parent(&vmt, &by_vmt_va, ctx);
             let class = Class { vmt, parent_index };
             if let Ok(name) = str::from_utf8(class.vmt.class_name_bytes()) {
                 by_name.entry(name).or_insert(i);
+            }
+            if class.vmt.type_info != 0 {
+                by_type_info.entry(class.vmt.type_info).or_insert(i);
             }
             classes.push(class);
         }
@@ -151,6 +156,7 @@ impl<'a> ClassSet<'a> {
             classes,
             by_vmt_va,
             by_name,
+            by_type_info,
         }
     }
 
@@ -166,13 +172,13 @@ impl<'a> ClassSet<'a> {
         self.classes.is_empty()
     }
 
-    /// Iterate all classes in discovery order.
+    /// Iterates all classes in discovery order.
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = &Class<'a>> {
         self.classes.iter()
     }
 
-    /// Iterate `(class, parent)` pairs in discovery order. `parent` is
+    /// Iterates `(class, parent)` pairs in discovery order. `parent` is
     /// `None` for root classes (`TObject`) and for classes whose parent
     /// VMT lies outside the scanned region (typically classes inherited
     /// from a runtime package).
@@ -182,23 +188,31 @@ impl<'a> ClassSet<'a> {
             .map(|c| (c, c.parent_index.and_then(|idx| self.classes.get(idx))))
     }
 
-    /// Access a class by its index. Panics on out-of-bounds.
+    /// Accesses a class by its index. `None` when `index` is out of range.
     #[inline]
     pub fn get(&self, index: usize) -> Option<&Class<'a>> {
         self.classes.get(index)
     }
 
-    /// Look up a class by its exact name (case-sensitive). Delphi class names
+    /// Looks up a class by its exact name (case-sensitive). Delphi class names
     /// are case-sensitive in the VMT.
     #[inline]
     pub fn find_by_name(&self, name: &str) -> Option<&Class<'a>> {
         self.by_name.get(name).and_then(|&i| self.classes.get(i))
     }
 
-    /// Look up a class by its VMT base VA.
+    /// Looks up a class by its VMT base VA.
     #[inline]
     pub fn find_by_vmt_va(&self, va: u64) -> Option<&Class<'a>> {
         self.by_vmt_va.get(&va).and_then(|&i| self.classes.get(i))
+    }
+
+    /// Looks up a class by the VA of its `tkClass` type info (`vmtTypeInfo`).
+    #[inline]
+    pub fn find_by_type_info(&self, va: u64) -> Option<&Class<'a>> {
+        self.by_type_info
+            .get(&va)
+            .and_then(|&i| self.classes.get(i))
     }
 
     /// Root `TObject`, if present (the class whose parent chain terminates
@@ -209,7 +223,7 @@ impl<'a> ClassSet<'a> {
         self.classes.iter().find(|c| c.parent_index.is_none())
     }
 
-    /// Iterate the ancestry chain of a class, starting with its immediate
+    /// Iterates the ancestry chain of a class, starting with its immediate
     /// parent and walking toward `TObject`. Protects against cycles.
     pub fn ancestors(&'a self, class: &'a Class<'a>) -> Ancestors<'a> {
         Ancestors {
@@ -219,7 +233,7 @@ impl<'a> ClassSet<'a> {
         }
     }
 
-    /// Iterate direct children of `class`. Cost is linear in the class set
+    /// Iterates direct children of `class`. Cost is linear in the class set
     /// size; callers that need children for many classes should build their
     /// own adjacency table.
     pub fn children<'b>(&'b self, class: &'b Class<'a>) -> impl Iterator<Item = &'b Class<'a>> {
@@ -229,7 +243,7 @@ impl<'a> ClassSet<'a> {
             .filter(move |c| c.vmt.parent_vmt == target)
     }
 
-    /// Count classes with no parent index - the sum of genuine roots and
+    /// Counts classes with no parent index - the sum of genuine roots and
     /// classes whose parent VMT points outside the scanned set. For a clean
     /// standalone EXE this is typically `1` (just `TObject`); for a BPL
     /// runtime package it is much higher because every class imports its
@@ -242,7 +256,7 @@ impl<'a> ClassSet<'a> {
             .count()
     }
 
-    /// Count classes whose `vmtParent` is null - genuine ancestry roots like
+    /// Counts classes whose `vmtParent` is null - genuine ancestry roots like
     /// Delphi's `TObject`. Typically `1` for a standalone EXE and `0` for a
     /// BPL (whose `TObject` lives in `rtl*.bpl`).
     pub fn root_count(&self) -> usize {
@@ -252,7 +266,7 @@ impl<'a> ClassSet<'a> {
             .count()
     }
 
-    /// Count classes with a non-null `vmtParent` that doesn't resolve to any
+    /// Counts classes with a non-null `vmtParent` that doesn't resolve to any
     /// VMT in the scanned set. These inherit from a class exported by a
     /// dependency package - the expected shape for BPL runtime packages.
     pub fn external_parent_count(&self) -> usize {
@@ -262,7 +276,7 @@ impl<'a> ClassSet<'a> {
             .count()
     }
 
-    /// Build adjacency mapping from parent-index to a vector of child
+    /// Builds adjacency mapping from parent-index to a vector of child
     /// indices. Useful for tree rendering. O(n) construction.
     pub fn child_map(&self) -> BTreeMap<usize, Vec<usize>> {
         let mut map: BTreeMap<usize, Vec<usize>> = Default::default();
@@ -283,7 +297,7 @@ impl<'a> ClassSet<'a> {
             .collect()
     }
 
-    /// Render an indented ASCII tree of the class hierarchy. `max_children`
+    /// Renders an indented ASCII tree of the class hierarchy. `max_children`
     /// caps how many children of each node are printed to keep output
     /// bounded on huge binaries.
     pub fn render_tree(&self, max_children: usize) -> String {
@@ -322,7 +336,7 @@ impl<'a> ClassSet<'a> {
     }
 }
 
-/// Resolve the parent pointer of `vmt` to a class index.
+/// Resolves the parent pointer of `vmt` to a class index.
 ///
 /// Tries, in order:
 /// 1. Null `vmtParent` → `None` (a root class).
@@ -425,7 +439,7 @@ mod tests {
     use super::*;
     use crate::vmt::{Vmt, VmtFlavor};
 
-    /// Build a VMT stub with the given VMT base VA and parent VMT VA.
+    /// Builds a VMT stub with the given VMT base VA and parent VMT VA.
     fn stub_vmt(name: &'static str, va: u64, parent_vmt: u64) -> Vmt<'static> {
         let slots: u64 = 22;
         let psize: u64 = 4;

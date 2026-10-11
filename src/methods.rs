@@ -40,7 +40,10 @@ use crate::{
     formats::BinaryContext,
     limits::{MAX_METHODS_PER_CLASS, MAX_METHODS_PER_CLASS_FPC},
     signatures::ExtendedMethodInfo,
-    util::{read_ptr, read_short_string_at_file, read_short_string_at_va, read_u16, read_u32},
+    util::{
+        as_identifier, read_ptr, read_short_string_at_file, read_short_string_at_va, read_u16,
+        read_u32,
+    },
     vmt::{Vmt, VmtFlavor},
 };
 
@@ -61,8 +64,8 @@ pub struct MethodEntry<'a> {
 }
 
 impl<'a> MethodEntry<'a> {
-    /// Method name as `&str`, lossily decoded. Pascal identifiers are ASCII
-    /// in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
+    /// Method name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -74,7 +77,7 @@ impl<'a> MethodEntry<'a> {
         self.name
     }
 
-    /// Convert this method's absolute code VA to an RVA by subtracting
+    /// Converts this method's absolute code VA to an RVA by subtracting
     /// `image_base`.
     #[inline]
     pub fn method_rva(&self, image_base: u64) -> Option<u64> {
@@ -83,7 +86,7 @@ impl<'a> MethodEntry<'a> {
 }
 
 impl<'a> MethodEntry<'a> {
-    /// Collect all published methods declared on `vmt`. Returns an
+    /// Collects all published methods declared on `vmt`. Returns an
     /// empty vector if the class has no method table or the table is
     /// malformed.
     pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
@@ -162,6 +165,11 @@ pub struct DelphiExtMethod<'a> {
     /// The signature trailer bytes (same layout as
     /// [`MethodEntry::trailer`]); empty when the entry has no tail.
     pub trailer: &'a [u8],
+    /// The entry's position in the extended-method table, which indexed
+    /// properties refer to ([`crate::extrtti::ArrayProperty::read_index`]);
+    /// entries that cannot be read are left out of
+    /// [`DelphiExtMethod::iter`] but keep their positions.
+    pub index: u16,
 }
 
 impl<'a> DelphiExtMethod<'a> {
@@ -173,7 +181,8 @@ impl<'a> DelphiExtMethod<'a> {
         }
     }
 
-    /// Method name as `&str`, lossily decoded.
+    /// Method name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -185,7 +194,7 @@ impl<'a> DelphiExtMethod<'a> {
         self.name
     }
 
-    /// Walk the extended-method section of a Delphi `vmtMethodTable`.
+    /// Walks the extended-method section of a Delphi `vmtMethodTable`.
     ///
     /// Returns an empty vector for FPC VMTs, for classes with no method
     /// table, and for pre-2010 Delphi (which has no extended section).
@@ -208,16 +217,11 @@ impl<'a> DelphiExtMethod<'a> {
 }
 
 /// Whether `name` looks like a Pascal method identifier: non-empty, leading
-/// letter or `_`, then alphanumerics / `_`. Used to reject garbage read past
-/// the published-method section on compilers with no extended section.
+/// letter or `_`, then letters, digits or `_`. Used to reject garbage read
+/// past the published-method section on compilers with no extended section.
 fn is_plausible_method_name(name: &[u8]) -> bool {
-    let Some(&first) = name.first() else {
-        return false;
-    };
-    if !(first.is_ascii_alphabetic() || first == b'_') {
-        return false;
-    }
-    name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+    as_identifier(name, &[])
+        .is_some_and(|name| name.starts_with(|c: char| c.is_alphabetic() || c == '_'))
 }
 
 /// Walks the extended-method section, answering its entries and the file
@@ -253,7 +257,8 @@ fn iter_delphi_extended<'a>(
     let ex_record_size = psize.checked_add(4)?;
     let mut out = Vec::with_capacity(ex_count);
 
-    for _ in 0..ex_count {
+    for index in 0..ex_count {
+        let index = u16::try_from(index).ok()?;
         let entry_ptr_va = read_ptr(data, entry_cursor, psize)?;
         let flags = read_u16(data, entry_cursor.checked_add(psize)?)?;
         let vmt_index = read_u16(data, entry_cursor.checked_add(psize)?.checked_add(2)?)? as i16;
@@ -300,6 +305,7 @@ fn iter_delphi_extended<'a>(
             flags,
             vmt_index,
             trailer,
+            index,
         });
     }
     Some((out, entry_cursor))

@@ -93,7 +93,7 @@ impl<'a> CodeEntrypoint<'a> {
         }
     }
 
-    /// Convert this entrypoint's absolute VA to an RVA by subtracting
+    /// Converts this entrypoint's absolute VA to an RVA by subtracting
     /// `image_base`.
     #[inline]
     pub fn rva(&self, image_base: u64) -> Option<u64> {
@@ -128,7 +128,7 @@ impl fmt::Display for EntrypointKind {
     }
 }
 
-/// Collect every code VA the crate can confidently label.
+/// Collects every code VA the crate can confidently label.
 ///
 /// Walks every class's published methods, VMT slots, dynamic-message
 /// slots, interface getters, property getters/setters/stored, plus the

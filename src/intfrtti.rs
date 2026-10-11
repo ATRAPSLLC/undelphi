@@ -47,10 +47,11 @@
 use std::str;
 
 use crate::{
+    extrtti::read_attr_data,
     formats::BinaryContext,
     rtti::{InterfaceTypeInfo, MethodKind, TypeHeader},
     signatures::CallConv,
-    util::{read_ptr, read_short_string_at_file, read_u16},
+    util::{as_identifier, read_ptr, read_short_string_at_file, read_u16},
     vmt::VmtFlavor,
 };
 
@@ -100,13 +101,15 @@ pub struct InterfaceParamRtti<'a> {
 }
 
 impl<'a> InterfaceMethodRtti<'a> {
-    /// Method name, lossily decoded.
+    /// Method name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when the
+    /// bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
     }
 
-    /// Result type name for a function, lossily decoded.
+    /// Result type name for a function: UTF-8, as Delphi 2009 and later store names, or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8.
     #[inline]
     pub fn result_type_name(&self) -> Option<&'a str> {
         self.result_type_name
@@ -115,13 +118,15 @@ impl<'a> InterfaceMethodRtti<'a> {
 }
 
 impl<'a> InterfaceParamRtti<'a> {
-    /// Parameter name, lossily decoded.
+    /// Parameter name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when the
+    /// bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
     }
 
-    /// Declared type name, lossily decoded.
+    /// Declared type name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when
+    /// the bytes are not valid UTF-8.
     #[inline]
     pub fn type_name(&self) -> &'a str {
         str::from_utf8(self.type_name).unwrap_or("<non-ascii>")
@@ -129,7 +134,7 @@ impl<'a> InterfaceParamRtti<'a> {
 }
 
 impl<'a> InterfaceRtti<'a> {
-    /// Decode the method table that follows `info`'s unit name.
+    /// Decodes the method table that follows `info`'s unit name.
     /// `attributes` selects the Delphi 2010+ layout with `AttrData` blocks.
     /// `None` when the table does not parse.
     pub fn decode(
@@ -221,7 +226,7 @@ fn read_method(
         let type_ref = read_ptr(data, cursor, ptr_size)?;
         cursor = cursor.checked_add(ptr_size)?;
         if attributes {
-            cursor = skip_attr_data(data, cursor)?;
+            cursor = read_attr_data(data, cursor, ptr_size)?.1;
         }
         if index == 0 {
             self_type_ref = type_ref;
@@ -250,7 +255,7 @@ fn read_method(
         (None, 0)
     };
     if attributes {
-        cursor = skip_attr_data(data, cursor)?;
+        cursor = read_attr_data(data, cursor, ptr_size)?.1;
     }
     Some((
         InterfaceMethodRtti {
@@ -269,16 +274,5 @@ fn read_method(
 /// Reads a method name, requiring a plausible identifier.
 fn read_name(data: &[u8], at: usize) -> Option<&[u8]> {
     let name = read_short_string_at_file(data, at)?;
-    (!name.is_empty() && name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_'))
-        .then_some(name)
-}
-
-/// Skips a Delphi 2010+ `AttrData` block: a `u16` length that counts itself,
-/// then the attribute entries.
-fn skip_attr_data(data: &[u8], at: usize) -> Option<usize> {
-    let len = usize::from(read_u16(data, at)?);
-    if len < 2 {
-        return None;
-    }
-    at.checked_add(len)
+    as_identifier(name, &[]).map(|_| name)
 }

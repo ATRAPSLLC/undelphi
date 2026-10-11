@@ -102,7 +102,7 @@ use crate::{
     formats::BinaryContext,
     limits::{MAX_INTERFACES_PER_CLASS, MAX_INTERFACES_PER_CLASS_FPC, MAX_METHODS_PER_CLASS},
     properties::{Access, AccessKind},
-    util::{read_ptr, read_short_string_at_va, read_u32},
+    util::{as_identifier, read_ptr, read_short_string_at_va, read_u32},
     vmt::{Vmt, VmtFlavor},
 };
 
@@ -123,7 +123,7 @@ pub struct Guid {
 }
 
 impl Guid {
-    /// Construct from 16 little-endian bytes - equivalent to
+    /// Constructs from 16 little-endian bytes - equivalent to
     /// [`From<[u8; 16]>`](#impl-From%3C%5Bu8%3B+16%5D%3E-for-Guid),
     /// kept for backwards compatibility with code that holds a `&[u8; 16]`.
     #[inline]
@@ -131,7 +131,7 @@ impl Guid {
         Self::from(*bytes)
     }
 
-    /// Render as `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` (Microsoft /
+    /// Renders as `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` (Microsoft /
     /// Delphi format), allocating a `String`. Equivalent to
     /// `format!("{guid}")`. Prefer the `Display` impl in hot paths to
     /// avoid the allocation.
@@ -141,7 +141,7 @@ impl Guid {
 }
 
 impl From<[u8; 16]> for Guid {
-    /// Construct a `Guid` from 16 little-endian bytes - the on-disk
+    /// Constructs a `Guid` from 16 little-endian bytes - the on-disk
     /// layout used by both Delphi (`TGuid` literal) and FPC.
     fn from(bytes: [u8; 16]) -> Self {
         Self {
@@ -240,7 +240,7 @@ pub struct InterfaceThunk {
 }
 
 impl InterfaceThunk {
-    /// Decode the adjustor thunk at `va`. `pointer_size` selects the 32- or
+    /// Decodes the adjustor thunk at `va`. `pointer_size` selects the 32- or
     /// 64-bit encodings. `None` when the bytes match no known thunk.
     pub fn decode(ctx: &BinaryContext<'_>, va: u64, pointer_size: usize) -> Option<Self> {
         let off = ctx.va_to_file(va)?;
@@ -361,9 +361,9 @@ fn read_i32(code: &[u8], at: usize) -> Option<i32> {
 }
 
 impl<'a> InterfaceEntry<'a> {
-    /// For FPC Corba interfaces: the textual IID (e.g. `"ISomething"`),
-    /// lossily decoded. `None` on Delphi binaries or when the indirection
-    /// couldn't be followed.
+    /// For FPC Corba interfaces: the textual IID (e.g. `"ISomething"`), or
+    /// `"<non-ascii>"` when the bytes are not valid UTF-8. `None` on Delphi
+    /// binaries or when the indirection couldn't be followed.
     #[inline]
     pub fn iid_str(&self) -> Option<&'a str> {
         self.iid_str
@@ -379,14 +379,14 @@ impl<'a> InterfaceEntry<'a> {
 }
 
 impl<'a> InterfaceMethod<'a> {
-    /// Convert this method's absolute code VA to an RVA by subtracting
+    /// Converts this method's absolute code VA to an RVA by subtracting
     /// `image_base`.
     #[inline]
     pub fn method_rva(&self, image_base: u64) -> Option<u64> {
         self.code_va.checked_sub(image_base)
     }
 
-    /// Walk an interface's method-pointer array and return one entry
+    /// Walks an interface's method-pointer array and returns one entry
     /// per slot. The count is recovered by reading pointer-sized
     /// slots from `entry.vtable_va` and stopping at the first slot
     /// that does not contain a plausible code VA (zero, unmapped, or
@@ -488,7 +488,7 @@ impl<'a> InterfaceEntry<'a> {
         Some(vmt.intf_table..vmt.intf_table.checked_add(len)?)
     }
 
-    /// Decode every interface entry declared on `vmt`. Returns an
+    /// Decodes every interface entry declared on `vmt`. Returns an
     /// empty vector when the class has no interface table or the
     /// table is malformed.
     pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
@@ -627,7 +627,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<InterfaceE
     Some(out)
 }
 
-/// Follow `IIDStrRef: ^PShortString` two levels of indirection to recover
+/// Follows `IIDStrRef: ^PShortString` two levels of indirection to recover
 /// the Corba interface name.
 fn read_fpc_iid_str<'a>(
     ctx: &BinaryContext<'a>,
@@ -682,11 +682,7 @@ fn read_fpc_corba_name<'a>(
 
 /// Returns `true` for a plausible Pascal interface name.
 fn is_interface_name(name: &[u8]) -> bool {
-    !name.is_empty()
-        && name.len() <= 255
-        && name
-            .iter()
-            .all(|&b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
+    as_identifier(name, &['.']).is_some()
 }
 
 fn read_fpc_iid(ctx: &BinaryContext<'_>, iid_ref_va: u64, ptr_size: usize) -> Option<Guid> {

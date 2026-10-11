@@ -120,6 +120,35 @@ code section. A few API changes break compatibility; see **Changed**.
 
 - `signatures::MethodParam`, `rtti::SignatureParam` and `rtti::RecordField`
   are no longer `Copy` (they carry attributes).
+- `ExtendedProperty::attributes` and `ExtendedField::attributes` are decoded
+  `Vec<AttributeEntry>` fields, like those of records, methods and
+  parameters, instead of methods taking a pointer size;
+  `ExtendedProperty::attributes_raw` is gone and `ExtendedField` is no longer
+  `Copy`. Every `TAttrData` block is read by one strict reader
+  (`extrtti::read_attr_data`).
+- Removed `AttributeEntry::iter_at` and `iter_class_attributes` (a greedy
+  scan nothing used) and `Visibility::Unknown` (never produced).
+- Indexed-property accessors resolve by table position:
+  `DelphiExtMethod::index` is an entry's position in the extended-method
+  table, and `ArrayProperty::getter` / `setter` look `read_index` /
+  `write_index` up by it, so an unreadable entry no longer shifts the ones
+  after it.
+- `AccessTarget::UnresolvedSlot` carries the VMT byte offset unchanged as a
+  `u64` (it was truncated to `u16`).
+- Identifier checks accept UTF-8 letters, as Delphi 2009+ writes
+  identifiers; a non-ASCII name no longer ends a class, field, method,
+  property or record walk.
+- The extended-RTTI accessors of `DelphiBinary` (`extended_properties`,
+  `extended_fields`, `extended_methods`, `indexed_properties`,
+  `class_attributes`, and the extended source of `method_signatures`) return
+  nothing when the build string or RTL package dates the compiler before
+  Delphi 2010, which the Delphi 2009 VMT header alone cannot tell apart.
+- `DelphiBinary::string_layout` and `import_at` are cached and indexed, and
+  `ClassSet::find_by_type_info` finds a class by its type info:
+  `decode_attribute` is about six times faster on large binaries. Naming the
+  unit initialization table (`DelphiBinary::locate`) checks variable layout
+  by binary search, and thread-variable offsets past the TLS template are
+  rejected as misreads.
 - `AccessKind::Virtual` values are VMT byte offsets (as stored on disk), and
   `Access::resolve` resolves them correctly; it previously treated them as
   slot indexes.

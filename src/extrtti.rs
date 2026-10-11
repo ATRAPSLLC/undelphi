@@ -82,20 +82,17 @@ pub enum Visibility {
     Public = 2,
     /// `published`.
     Published = 3,
-    /// Out-of-range byte.
-    Unknown = 0xff,
 }
 
 impl Visibility {
-    /// Decode the visibility from the low two bits of an extended-RTTI
+    /// Decodes the visibility from the low two bits of an extended-RTTI
     /// flags byte (`0` private, `1` protected, `2` public, `3` published).
     pub fn from_flags(b: u8) -> Self {
         match b & 0x03 {
             0 => Visibility::Private,
             1 => Visibility::Protected,
             2 => Visibility::Public,
-            3 => Visibility::Published,
-            _ => Visibility::Unknown,
+            _ => Visibility::Published,
         }
     }
 }
@@ -116,17 +113,8 @@ pub struct ExtendedProperty<'a> {
     /// ignore this field and access `Property` members directly via the
     /// [`Deref`] impl.
     pub info: Property<'a>,
-    /// Raw attribute-table bytes trailing the header. Empty when no
-    /// attributes are declared.
-    pub attributes_raw: &'a [u8],
-}
-
-impl<'a> ExtendedProperty<'a> {
-    /// Decodes the property's attributes (`[Name(...)]` before the
-    /// declaration). `ptr_size` is the binary's pointer size.
-    pub fn attributes(&self, ptr_size: usize) -> Vec<AttributeEntry<'a>> {
-        AttributeEntry::decode_block(self.attributes_raw, ptr_size).0
-    }
+    /// The property's attributes (`[Name(...)]` before the declaration).
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 impl<'a> Deref for ExtendedProperty<'a> {
@@ -155,7 +143,7 @@ pub struct AttributeEntry<'a> {
 }
 
 impl<'a> AttributeEntry<'a> {
-    /// Interpret `arg_data` as a single `u16`-prefixed string argument,
+    /// Interprets `arg_data` as a single `u16`-prefixed string argument,
     /// when it matches that shape. Returns `None` otherwise.
     pub fn arg_as_string(&self) -> Option<&'a [u8]> {
         let len_bytes = self.arg_data.get(..2)?;
@@ -174,7 +162,7 @@ impl<'a> AttributeEntry<'a> {
 }
 
 impl<'a> AttributeEntry<'a> {
-    /// Decode every entry of an attribute block at `bytes`. Entries
+    /// Decodes every entry of an attribute block at `bytes`. Entries
     /// are variable-size; iteration stops when the cursor would
     /// overrun the provided slice. Returns the list plus the byte
     /// length consumed.
@@ -268,7 +256,7 @@ impl<'a> DecodedAttribute<'a> {
             constructor_name: None,
             args: Vec::new(),
         };
-        let mut class = type_info.and_then(|ti| classes.iter().find(|c| c.vmt.type_info == ti));
+        let mut class = type_info.and_then(|ti| classes.find_by_type_info(ti));
         let mut ctor = None;
         // The constructor may be inherited (`TCustomAttribute.Create`).
         for _ in 0..MAX_ANCESTOR_DEPTH {
@@ -458,8 +446,10 @@ fn decode_arg<'a>(
 ///
 /// Delphi 2010+ writes one after every extended member, signature
 /// parameter and type (`System.TypInfo`: `TAttrData`, `TAttrEntry`); an
-/// empty block is the bare length `2`. `None` when the length is below 2,
-/// runs past `data`, or does not end on an entry boundary.
+/// empty block is the bare length `2`. `None` when the length is below 2
+/// or above [`MAX_ATTR_DATA_BYTES`], runs past `data`, or does not end on
+/// an entry boundary. Every reader of an attribute block goes through this
+/// one.
 pub fn read_attr_data(
     data: &[u8],
     off: usize,
@@ -467,7 +457,7 @@ pub fn read_attr_data(
 ) -> Option<(Vec<AttributeEntry<'_>>, usize)> {
     // The length counts itself, so less than 2 is malformed.
     let len = usize::from(read_u16(data, off)?);
-    if len < 2 {
+    if !(2..=MAX_ATTR_DATA_BYTES).contains(&len) {
         return None;
     }
     let end = off.checked_add(len)?;
@@ -489,7 +479,7 @@ fn decode_attribute_block<'a>(
     (out, cursor)
 }
 
-/// Decode a single attribute entry at `cursor`. Returns the entry and the
+/// Decodes a single attribute entry at `cursor`. Returns the entry and the
 /// cursor position one byte past it, or `None` when any read overruns.
 fn decode_one_attribute<'a>(
     bytes: &'a [u8],
@@ -515,168 +505,114 @@ fn decode_one_attribute<'a>(
 }
 
 impl<'a> ExtendedProperty<'a> {
-    /// Walk the extended-RTTI property block for `class`. Returns an
+    /// Walks the extended-RTTI property block for `class`. Returns an
     /// empty vector when no extended block is present (Delphi before 2010
     /// and FPC never emit one; later classes can disable it with the
-    /// `{$RTTI}` directive).
+    /// `{$RTTI}` directive). Entries whose `TPropInfo` lies outside the
+    /// image (an ancestor's, in another module) are left out.
     pub fn iter(ctx: &BinaryContext<'a>, class: &Class<'a>) -> Vec<Self> {
+        let psize = usize::from(class.vmt.pointer_size);
+        let Some(table) = PropertyTables::read(ctx, class) else {
+            return Vec::new();
+        };
+        table
+            .extended
+            .into_iter()
+            .filter_map(|entry| {
+                Some(ExtendedProperty {
+                    visibility: Visibility::from_flags(entry.flags),
+                    flags: entry.flags,
+                    info: Property::from_delphi_record(ctx, entry.info, psize)?,
+                    attributes: entry.attributes,
+                })
+            })
+            .collect()
+    }
+}
+
+/// One entry of a class's extended-property table (`PropDataEx`), before
+/// its `TPropInfo` is dereferenced.
+struct ExtendedEntry<'a> {
+    flags: u8,
+    info: u64,
+    attributes: Vec<AttributeEntry<'a>>,
+}
+
+/// A class's property tables as one walk reads them: the classic
+/// `TPropData` (skipped), the extended `PropDataEx` and where the
+/// class-level `AttrData` that follows them starts.
+struct PropertyTables<'a> {
+    extended: Vec<ExtendedEntry<'a>>,
+    attr_data: usize,
+}
+
+impl<'a> PropertyTables<'a> {
+    /// Walks `class`'s `tkClass` property data:
+    ///
+    /// ```text
+    ///   PropCount: u16, TPropInfo[PropCount]   classic (published)
+    ///   PropCountEx: u16                         Delphi 2010+, always written
+    ///   entries[PropCountEx]: Flags u8, PPropInfo ptr, AttrData
+    ///   AttrData                                 the class's attributes
+    /// ```
+    ///
+    /// `None` when the class predates extended RTTI or any part does not
+    /// parse (a layout this decoder does not know).
+    fn read(ctx: &BinaryContext<'a>, class: &Class<'a>) -> Option<Self> {
         if predates_extended_rtti(class) {
-            return Vec::new();
+            return None;
         }
-        let tk = match TkClassInfo::from_vmt(ctx, &class.vmt) {
-            Some(v) => v,
-            None => return Vec::new(),
-        };
-        // Re-walk classic properties to advance past them, then try the
-        // extended block.
+        let tk = TkClassInfo::from_vmt(ctx, &class.vmt)?;
         let data = ctx.data();
-        let psize = class.vmt.pointer_size as usize;
-        let Some(classic_count) = read_u16(data, tk.prop_data_file_offset).map(usize::from) else {
-            return Vec::new();
-        };
-        let Some(fixed) = psize.checked_mul(4).and_then(|n| n.checked_add(10)) else {
-            return Vec::new();
-        };
-        let Some(mut cursor) = tk.prop_data_file_offset.checked_add(2) else {
-            return Vec::new();
-        };
+        let psize = usize::from(class.vmt.pointer_size);
+
+        // The classic entries: a fixed part (four pointers, `Index`,
+        // `Default`, `NameIndex`) and the name.
+        let classic_count = usize::from(read_u16(data, tk.prop_data_file_offset)?);
+        if classic_count > MAX_EXTENDED_PROPERTIES_PER_CLASS.checked_mul(4)? {
+            return None;
+        }
+        let fixed = psize.checked_mul(4)?.checked_add(10)?;
+        let mut cursor = tk.prop_data_file_offset.checked_add(2)?;
         for _ in 0..classic_count {
-            let Some(name_off) = cursor.checked_add(fixed) else {
-                return Vec::new();
-            };
-            let Some(name) = read_short_string_at_file(data, name_off) else {
-                return Vec::new();
-            };
+            let name = read_short_string_at_file(data, cursor.checked_add(fixed)?)?;
             if name.is_empty() || name.len() > MAX_IDENTIFIER_BYTES {
-                return Vec::new();
+                return None;
             }
-            let Some(advance) = fixed.checked_add(1).and_then(|n| n.checked_add(name.len())) else {
-                return Vec::new();
-            };
-            let Some(next) = cursor.checked_add(advance) else {
-                return Vec::new();
-            };
+            cursor = cursor
+                .checked_add(fixed)?
+                .checked_add(1)?
+                .checked_add(name.len())?;
+        }
+
+        let count = usize::from(read_u16(data, cursor)?);
+        if count > MAX_EXTENDED_PROPERTIES_PER_CLASS {
+            return None;
+        }
+        cursor = cursor.checked_add(2)?;
+        let mut extended = Vec::with_capacity(count);
+        for _ in 0..count {
+            let flags = *data.get(cursor)?;
+            let info_off = cursor.checked_add(1)?;
+            let info = read_ptr(data, info_off, psize)?;
+            let (attributes, next) = read_attr_data(data, info_off.checked_add(psize)?, psize)?;
+            extended.push(ExtendedEntry {
+                flags,
+                info,
+                attributes,
+            });
             cursor = next;
         }
-
-        // Extended block starts here. Read u16 count.
-        let Some(ext_count) = read_u16(data, cursor).map(usize::from) else {
-            return Vec::new();
-        };
-        if ext_count == 0 || ext_count > MAX_EXTENDED_PROPERTIES_PER_CLASS {
-            return Vec::new();
-        }
-        let Some(after_ext_count) = cursor.checked_add(2) else {
-            return Vec::new();
-        };
-        cursor = after_ext_count;
-
-        let mut out = Vec::with_capacity(ext_count);
-        for _ in 0..ext_count {
-            // Entry header: Flags:u8, PPropInfo:ptr, ExtraLen:u16, Extra.
-            let Some(&flags) = data.get(cursor) else {
-                break;
-            };
-            let Some(info_ptr_off) = cursor.checked_add(1) else {
-                break;
-            };
-            let info_ptr = match read_ptr(data, info_ptr_off, psize) {
-                Some(v) => v,
-                None => break,
-            };
-            let Some(extra_len_off) = info_ptr_off.checked_add(psize) else {
-                break;
-            };
-            let Some(extra_len) = read_u16(data, extra_len_off).map(usize::from) else {
-                break;
-            };
-            let Some(attr_start) = extra_len_off.checked_add(2) else {
-                break;
-            };
-            if extra_len < 2 {
-                break;
-            }
-            let Some(attrs_len) = extra_len.checked_sub(2) else {
-                break;
-            };
-            let Some(attr_end) = attr_start.checked_add(attrs_len) else {
-                break;
-            };
-            let Some(attributes_raw) = data.get(attr_start..attr_end) else {
-                break;
-            };
-            let Some(advance) = 1usize
-                .checked_add(psize)
-                .and_then(|n| n.checked_add(extra_len))
-            else {
-                break;
-            };
-            let Some(next_cursor) = cursor.checked_add(advance) else {
-                break;
-            };
-
-            // Dereference info_ptr to a TPropInfo and decode it.
-            let Some(prop) = Property::from_delphi_record(ctx, info_ptr, psize) else {
-                // Skip entries we can't dereference - some records point at
-                // Ancestor classes that live outside our scanned region.
-                cursor = next_cursor;
-                continue;
-            };
-
-            out.push(ExtendedProperty {
-                visibility: Visibility::from_flags(flags),
-                flags,
-                info: prop,
-                attributes_raw,
-            });
-            cursor = next_cursor;
-        }
-        out
+        Some(Self {
+            extended,
+            attr_data: cursor,
+        })
     }
 }
 
-impl<'a> AttributeEntry<'a> {
-    /// Walk the class attribute table at `va` (typically the
-    /// `TkClassInfo` `AttributeTable` pointer, for newer Delphi
-    /// versions that emit one).
-    pub fn iter_at(ctx: &BinaryContext<'a>, va: u64, ptr_size: usize) -> Vec<Self> {
-        iter_class_attributes(ctx, va, ptr_size)
-    }
-}
-
-fn iter_class_attributes<'a>(
-    ctx: &BinaryContext<'a>,
-    va: u64,
-    ptr_size: usize,
-) -> Vec<AttributeEntry<'a>> {
-    if va == 0 {
-        return Vec::new();
-    }
-    let Some(file_off) = ctx.va_to_file(va) else {
-        return Vec::new();
-    };
-    let data = ctx.data();
-    // The block has no count: decode entries greedily within a bound.
-    let Some(remaining) = data.len().checked_sub(file_off) else {
-        return Vec::new();
-    };
-    let cap = MAX_ATTR_DATA_BYTES.min(remaining);
-    let Some(end) = file_off.checked_add(cap) else {
-        return Vec::new();
-    };
-    let Some(slice) = data.get(file_off..end) else {
-        return Vec::new();
-    };
-    decode_attribute_block(slice, ptr_size).0
-}
-
-/// Find the file offset of the class-level attribute block by walking
-/// past the classic `TPropData` and the extended-property block.
-///
-/// Modern Delphi RTTI (XE3+) emits the class-level `AttrData` immediately
-/// after the extended-property block. The block is a `u16` length
-/// followed by `length - 2` bytes of packed attribute entries (same
-/// shape as the per-property attribute payloads).
+/// Finds the file offset of the class-level attribute block (`AttrData`) by
+/// walking past the classic `TPropData` and the extended-property block
+/// (Delphi XE3+ writes it right after them).
 ///
 /// Returns `None` for binaries that don't emit extended RTTI (older
 /// Delphi, or `{$RTTI EXPLICIT}` directives that disable it).
@@ -684,100 +620,7 @@ pub fn class_attribute_block_offset<'a>(
     ctx: &BinaryContext<'a>,
     class: &Class<'a>,
 ) -> Option<usize> {
-    if predates_extended_rtti(class) {
-        return None;
-    }
-    let tk = TkClassInfo::from_vmt(ctx, &class.vmt)?;
-    let data = ctx.data();
-    let psize = class.vmt.pointer_size as usize;
-
-    // Walk past the classic TPropData entries.
-    let classic_count = read_u16(data, tk.prop_data_file_offset)? as usize;
-    let max_classic = MAX_EXTENDED_PROPERTIES_PER_CLASS.checked_mul(4)?;
-    if classic_count > max_classic {
-        return None;
-    }
-    let fixed = psize.checked_mul(4)?.checked_add(10)?;
-    let mut cursor = tk.prop_data_file_offset.checked_add(2)?;
-    for _ in 0..classic_count {
-        let name_off = cursor.checked_add(fixed)?;
-        let name = read_short_string_at_file(data, name_off)?;
-        if name.is_empty() || name.len() > MAX_IDENTIFIER_BYTES {
-            return None;
-        }
-        let advance = fixed.checked_add(1)?.checked_add(name.len())?;
-        cursor = cursor.checked_add(advance)?;
-    }
-
-    // Walk past the extended-property block, if any. Some classes have
-    // no extended RTTI; the u16 we read here will be either a real
-    // ext_count (followed by entries) or the leading u16 of the
-    // class-level AttrData block. We can't tell without trying both.
-    //
-    // Heuristic: try to walk as if it's the extended-property block.
-    // If every entry's `extra_len` stays within plausible bounds and we
-    // land on a position where the next u16 is a plausible AttrData
-    // length, we accept it. Otherwise treat the original u16 as the
-    // AttrData length directly.
-    let ext_marker = read_u16(data, cursor)? as usize;
-    let mut after_ext = cursor.checked_add(2)?;
-    let mut ext_walk_ok = true;
-    if ext_marker > 0 && ext_marker <= MAX_EXTENDED_PROPERTIES_PER_CLASS {
-        // Tentatively walk as ext-property block.
-        let mut probe = after_ext;
-        for _ in 0..ext_marker {
-            // Each entry: u8 flags + ptr info + u16 extra_len + extra.
-            if data.get(probe).is_none() {
-                ext_walk_ok = false;
-                break;
-            }
-            let Some(extra_len_off) = probe.checked_add(1).and_then(|n| n.checked_add(psize))
-            else {
-                ext_walk_ok = false;
-                break;
-            };
-            let extra_len = match read_u16(data, extra_len_off) {
-                Some(v) => v as usize,
-                None => {
-                    ext_walk_ok = false;
-                    break;
-                }
-            };
-            if !(2..=MAX_ATTR_DATA_BYTES).contains(&extra_len) {
-                ext_walk_ok = false;
-                break;
-            }
-            let Some(advance) = 1usize
-                .checked_add(psize)
-                .and_then(|n| n.checked_add(extra_len))
-            else {
-                ext_walk_ok = false;
-                break;
-            };
-            let Some(next) = probe.checked_add(advance) else {
-                ext_walk_ok = false;
-                break;
-            };
-            probe = next;
-        }
-        if ext_walk_ok {
-            after_ext = probe;
-        }
-    }
-
-    Some(
-        if ext_walk_ok && ext_marker > 0 && ext_marker <= MAX_EXTENDED_PROPERTIES_PER_CLASS {
-            after_ext
-        } else if ext_marker == 0 && read_u16(data, after_ext).is_some_and(|len| len >= 2) {
-            // An empty `PropDataEx` (no extended properties): its zero
-            // count, then the AttrData (`Len` is at least 2).
-            after_ext
-        } else {
-            // Delphi 2010+ always writes the `PropDataEx` count; a walk
-            // that fails means a layout this decoder does not know.
-            return None;
-        },
-    )
+    PropertyTables::read(ctx, class).map(|t| t.attr_data)
 }
 
 /// An indexed (array) property from a class's extended RTTI
@@ -787,11 +630,11 @@ pub fn class_attribute_block_offset<'a>(
 pub struct ArrayProperty<'a> {
     /// Flags byte: bit 0 `default`, the visibility in bits 1-2.
     pub flags: u8,
-    /// Index of the getter in the class's extended-method list
-    /// ([`crate::methods::DelphiExtMethod::iter`] order); `None` when the
-    /// property is not readable.
+    /// Position of the getter in the class's extended-method table
+    /// ([`DelphiExtMethod::index`]; [`ArrayProperty::getter`] looks it up);
+    /// `None` when the property is not readable.
     pub read_index: Option<u16>,
-    /// Index of the setter, likewise; `None` when not writable.
+    /// Position of the setter, likewise; `None` when not writable.
     pub write_index: Option<u16>,
     name: &'a [u8],
     /// The property's attributes.
@@ -799,9 +642,29 @@ pub struct ArrayProperty<'a> {
 }
 
 impl<'a> ArrayProperty<'a> {
-    /// The property name, lossily decoded.
+    /// The property name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when
+    /// the bytes are not valid UTF-8.
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
+    }
+
+    /// Returns the getter among `methods` (the class's
+    /// [`DelphiExtMethod::iter`]), by its table position.
+    pub fn getter<'m>(
+        &self,
+        methods: &'m [DelphiExtMethod<'a>],
+    ) -> Option<&'m DelphiExtMethod<'a>> {
+        let index = self.read_index?;
+        methods.iter().find(|m| m.index == index)
+    }
+
+    /// Returns the setter among `methods`, likewise.
+    pub fn setter<'m>(
+        &self,
+        methods: &'m [DelphiExtMethod<'a>],
+    ) -> Option<&'m DelphiExtMethod<'a>> {
+        let index = self.write_index?;
+        methods.iter().find(|m| m.index == index)
     }
 
     /// Whether the property is the class's `default` array property.
@@ -873,7 +736,8 @@ fn read_array_properties<'a>(
 ///
 /// - A Delphi VMT older than the Delphi 2009 header (22 slots): extended
 ///   RTTI arrived with Delphi 2010, and the 2009 header is the closest
-///   structural date the VMT carries. Without this gate the walkers read
+///   structural date the VMT carries ([`crate::DelphiBinary`] also checks
+///   the compiler version). Without this gate the walkers read
 ///   Delphi 6 / C++Builder 6 neighbours as attribute blocks
 ///   (`tests/samples/bcb6/gtforms.exe`).
 /// - Any FPC class: FPC 3.0 / 3.2 emit no extended blocks, and FPC trunk
@@ -885,41 +749,16 @@ fn predates_extended_rtti(class: &Class<'_>) -> bool {
 }
 
 impl<'a> AttributeEntry<'a> {
-    /// Decode the class-level attribute block - finds the offset via
-    /// [`class_attribute_block_offset`] and decodes the `u16`-prefixed
-    /// packed attribute entries that follow. Returns an empty vector
-    /// when the binary doesn't carry an `AttrData` trailer for this
-    /// class.
+    /// Decodes the class-level attribute block found by
+    /// [`class_attribute_block_offset`]. Returns an empty vector when the
+    /// binary doesn't carry an `AttrData` trailer for this class.
     pub fn iter_class(ctx: &BinaryContext<'a>, class: &Class<'a>) -> Vec<Self> {
-        let psize = class.vmt.pointer_size as usize;
-        let Some(off) = class_attribute_block_offset(ctx, class) else {
+        let psize = usize::from(class.vmt.pointer_size);
+        let Some((entries, _)) = class_attribute_block_offset(ctx, class)
+            .and_then(|off| read_attr_data(ctx.data(), off, psize))
+        else {
             return Vec::new();
         };
-        let data = ctx.data();
-        // AttrData layout: `u16 length` (counting itself), then
-        // `length - 2` bytes of packed attribute entries.
-        let Some(length) = read_u16(data, off).map(usize::from) else {
-            return Vec::new();
-        };
-        if length < 2 {
-            return Vec::new();
-        }
-        let Some(body_len) = length.checked_sub(2) else {
-            return Vec::new();
-        };
-        if body_len > MAX_ATTR_DATA_BYTES {
-            return Vec::new();
-        }
-        let Some(body_start) = off.checked_add(2) else {
-            return Vec::new();
-        };
-        let Some(body_end) = body_start.checked_add(body_len) else {
-            return Vec::new();
-        };
-        let Some(body) = data.get(body_start..body_end) else {
-            return Vec::new();
-        };
-        let entries = decode_attribute_block(body, psize).0;
         // Every attribute is constructed by code: a constructor outside the
         // code sections means the bytes were not an attribute block.
         if entries.iter().any(|entry| !ctx.is_code_va(entry.attr_ctor)) {

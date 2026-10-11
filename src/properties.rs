@@ -58,7 +58,7 @@ use crate::{
     formats::BinaryContext,
     limits::{MAX_IDENTIFIER_BYTES, MAX_PROPERTIES_PER_CLASS},
     rtti::TkClassInfo,
-    util::{read_ptr, read_short_string_at_file, read_u16, read_u32},
+    util::{as_identifier, read_ptr, read_short_string_at_file, read_u16, read_u32},
     vmt::{Vmt, VmtFlavor},
     vtable::VirtualMethodEntry,
 };
@@ -117,16 +117,16 @@ pub enum AccessTarget {
     FieldOffset(u32),
     /// FPC constant value - for [`AccessKind::Const`].
     Constant(u64),
-    /// Virtual access whose VMT byte offset didn't land on a decoded slot.
-    /// Returned only when resolution fails - the caller can still attempt
-    /// their own lookup.
-    UnresolvedSlot(u16),
+    /// Virtual access whose VMT byte offset (carried unchanged) didn't land
+    /// on a decoded slot. Returned only when resolution fails - the caller
+    /// can still attempt their own lookup.
+    UnresolvedSlot(u64),
     /// No handler ([`AccessKind::None`]).
     Missing,
 }
 
 impl Access {
-    /// Decode a raw `TPropInfo` getter/setter/stored pointer into an
+    /// Decodes a raw `TPropInfo` getter/setter/stored pointer into an
     /// access descriptor, inspecting the high bits that discriminate
     /// field-offset / virtual-slot / static-code-pointer encodings
     /// (the Delphi convention).
@@ -159,7 +159,7 @@ impl Access {
         }
     }
 
-    /// Decode a Delphi getter or setter: like [`Self::from_ptr`], except a
+    /// Decodes a Delphi getter or setter: like [`Self::from_ptr`], except a
     /// zero pointer means the property has no such accessor
     /// ([`AccessKind::None`]).
     pub fn accessor_from_ptr(raw: u64, ptr_size: usize) -> Self {
@@ -172,7 +172,7 @@ impl Access {
         Self::from_ptr(raw, ptr_size)
     }
 
-    /// Decode a Delphi `stored` clause: like [`Self::from_ptr`], except a raw
+    /// Decodes a Delphi `stored` clause: like [`Self::from_ptr`], except a raw
     /// value that fits in a byte is the boolean constant of `stored True`
     /// (`1`, also the default) or `stored False` (`0`) - the test Delphi 6
     /// `TypInfo.IsStoredProp` applies.
@@ -221,7 +221,7 @@ impl Access {
         }
     }
 
-    /// Resolve this access against a class's virtual-method table, hiding
+    /// Resolves this access against a class's virtual-method table, hiding
     /// the slot-index lookup the consumer would otherwise do by hand.
     ///
     /// Pass `virtual_methods` from
@@ -242,7 +242,7 @@ impl Access {
                     .map(|v| v.code_va)
                 {
                     Some(va) => AccessTarget::CodeVa(va),
-                    None => AccessTarget::UnresolvedSlot(self.value as u16),
+                    None => AccessTarget::UnresolvedSlot(self.value),
                 }
             }
         }
@@ -275,7 +275,7 @@ pub struct Property<'a> {
 }
 
 impl<'a> Property<'a> {
-    /// Decode one Delphi `TPropInfo` record at `va`: `PropType`
+    /// Decodes one Delphi `TPropInfo` record at `va`: `PropType`
     /// (`PPTypeInfo`), the get / set / stored accessors, `Index`, `Default`,
     /// `NameIndex` and `Name`. Used for the classic published table and for
     /// the records the Delphi 2010+ extended property table points at.
@@ -305,10 +305,7 @@ impl<'a> Property<'a> {
         let name_index =
             i16::from_le_bytes(data.get(name_index_off..name_index_end)?.try_into().ok()?);
         let name = read_short_string_at_file(data, name_off)?;
-        if name.is_empty()
-            || name.len() > MAX_IDENTIFIER_BYTES
-            || !name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
-        {
+        if !is_prop_name(name) {
             return None;
         }
         Some(Property {
@@ -324,8 +321,8 @@ impl<'a> Property<'a> {
         })
     }
 
-    /// Property name as `&str`, lossily decoded. Pascal identifiers are
-    /// ASCII in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
+    /// Property name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -339,7 +336,7 @@ impl<'a> Property<'a> {
 }
 
 impl<'a> Property<'a> {
-    /// Decode every published property declared on `vmt`.
+    /// Decodes every published property declared on `vmt`.
     ///
     /// Walks the class's `tkClass` TypeData up to and including
     /// `UnitName`, then reads the `TPropData` block that follows.
@@ -456,10 +453,7 @@ fn iter_fpc_tkclass<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Property<
         let Some(name) = read_short_string_at_file(data, name_off) else {
             break;
         };
-        if name.is_empty()
-            || name.len() > MAX_IDENTIFIER_BYTES
-            || !name.iter().all(is_prop_name_byte)
-        {
+        if !is_prop_name(name) {
             // Plausibility failed - most likely iteration has run off the
             // end of the TPropData block into padding or the next
             // structure. Stop gracefully instead of reporting None.
@@ -529,10 +523,7 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Propert
             i16::from_le_bytes(data.get(name_index_off..name_index_end)?.try_into().ok()?);
         let name = read_short_string_at_file(data, name_off)?;
         // Plausibility: property names are identifiers.
-        if name.is_empty()
-            || name.len() > MAX_IDENTIFIER_BYTES
-            || !name.iter().all(is_prop_name_byte)
-        {
+        if !is_prop_name(name) {
             return None;
         }
         let record_size = fixed.checked_add(1)?.checked_add(name.len())?;
@@ -557,8 +548,9 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Propert
     Some(out)
 }
 
-fn is_prop_name_byte(b: &u8) -> bool {
-    b.is_ascii_alphanumeric() || *b == b'_'
+/// Whether `name` is a plausible property identifier.
+fn is_prop_name(name: &[u8]) -> bool {
+    name.len() <= MAX_IDENTIFIER_BYTES && as_identifier(name, &[]).is_some()
 }
 
 /// Best-effort translation from a file offset back to a virtual address.
