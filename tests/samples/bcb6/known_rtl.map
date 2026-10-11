@@ -1,0 +1,87 @@
+
+ Start         Length     Name                   Class
+ 0001:00000000 000007BCH .text                   CODE
+ 0002:00000000 00000020H .data                   DATA
+ 0002:00000020 00000015H .bss                    BSS
+
+
+Detailed map of segments
+
+ 0001:00000000 000000CE C=CODE     S=.text    G=(none)   M=System   ACBP=A9
+ 0001:000000D0 00000090 C=CODE     S=.text    G=(none)   M=SysInit  ACBP=A9
+ 0001:00000160 0000000E C=CODE     S=.text    G=(none)   M=TypInfo  ACBP=A9
+ 0001:00000170 0000000E C=CODE     S=.text    G=(none)   M=SysUtils ACBP=A9
+ 0001:00000180 0000000E C=CODE     S=.text    G=(none)   M=SysConst ACBP=A9
+ 0001:00000190 00000038 C=CODE     S=.text    G=(none)   M=Windows  ACBP=A9
+ 0001:000001C8 0000000E C=CODE     S=.text    G=(none)   M=Types    ACBP=A9
+ 0001:000001D8 0000000E C=CODE     S=.text    G=(none)   M=Variants ACBP=A9
+ 0001:000001E8 0000000E C=CODE     S=.text    G=(none)   M=VarUtils ACBP=A9
+ 0001:000001F8 0000000E C=CODE     S=.text    G=(none)   M=RTLConsts ACBP=A9
+ 0001:00000208 0000002E C=CODE     S=.text    G=(none)   M=Classes  ACBP=A9
+ 0001:00000238 0000000E C=CODE     S=.text    G=(none)   M=ActiveX  ACBP=A9
+ 0001:00000248 00000038 C=CODE     S=.text    G=(none)   M=Messages ACBP=A9
+ 0001:00000280 0000053A C=CODE     S=.text    G=(none)   M=known    ACBP=A9
+ 0002:00000000 00000018 C=DATA     S=.data    G=DGROUP   M=SysInit  ACBP=A9
+ 0002:00001000 0000000C C=BSS      S=.bss     G=DGROUP   M=SysInit  ACBP=A9
+ 0002:0000100C 00000004 C=BSS      S=.bss     G=DGROUP   M=Windows  ACBP=A9
+ 0002:00001010 00000004 C=BSS      S=.bss     G=DGROUP   M=Messages ACBP=A9
+
+
+  Address         Publics by Name
+
+ 0002:00001008       .1
+ 0002:00001010       .1
+ 0002:0000100C       .3
+ 0001:000000E4       @InitExe
+ 0001:00000590       Anchor
+ 0001:00000248       Finalization
+ 0001:00000190       Finalization
+ 0001:00000128       Finalization
+ 0001:000006F8       Finalization
+ 0001:000000D0       GetModuleHandle
+ 0002:00001004       HInstance
+ 0001:000000D8       InitializeModule
+ 0001:00000798       known
+ 0001:00000278       Messages
+ 0002:00000000       Module
+ 0001:00000158       SysInit
+ 0001:0000058C       TButton.Click
+ 0002:00001000       TlsIndex
+ 0001:000001C0       Windows
+
+
+  Address         Publics by Value
+
+ 0001:000000D0       GetModuleHandle
+ 0001:000000D8       InitializeModule
+ 0001:000000E4       @InitExe
+ 0001:00000128       Finalization
+ 0001:00000158       SysInit
+ 0001:00000190       Finalization
+ 0001:000001C0       Windows
+ 0001:00000248       Finalization
+ 0001:00000278       Messages
+ 0001:0000058C       TButton.Click
+ 0001:00000590       Anchor
+ 0001:000006F8       Finalization
+ 0001:00000798       known
+ 0002:00000000       Module
+ 0002:00001000       TlsIndex
+ 0002:00001004       HInstance
+ 0002:00001008       .1
+ 0002:0000100C       .3
+ 0002:00001010       .1
+
+
+Line numbers for known(known.dpr) segment .text
+
+    72 0001:0000058C    81 0001:00000590    82 0001:000005B9    83 0001:000005C7
+    84 0001:000005E7    85 0001:0000060D    86 0001:00000613    96 0001:000006A7
+    97 0001:000006DF    99 0001:00000798   100 0001:000007B0   101 0001:000007B5
+
+Bound resource files
+
+C:\users\builder\AppData\Local\Temp\dtf2cbd.tmp
+
+
+Program entry point at 0001:00000798

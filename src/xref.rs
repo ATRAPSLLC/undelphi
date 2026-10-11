@@ -26,7 +26,7 @@ pub fn interface_implementors(bin: &DelphiBinary<'_>) -> BTreeMap<String, Vec<St
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for class in bin.classes().iter() {
         for ie in bin.interfaces(class) {
-            let key = format_interface_key(&ie.guid, ie.iid_str);
+            let key = format_interface_key(&ie.guid, ie.iid_str_bytes());
             out.entry(key).or_default().push(class.name().to_owned());
         }
     }

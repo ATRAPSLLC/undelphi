@@ -12,7 +12,7 @@ the SHA-256 check column for integrity.
 
 | # | Compiler | Target | Arch | Format | Local path | TPF0 forms |
 |---|----------|--------|------|--------|------------|------------|
-| 1 | Delphi (unknown version, pre-XE4 likely) | Windows | x86 | PE32 GUI | `tests/samples/idr-builds/Idr64.exe` | 18 |
+| 1 | C++Builder 6 (Borland C++ 5.6, Delphi 6 RTL) | Windows | x86 | PE32 GUI | `tests/samples/idr-builds/Idr64.exe` | 18 |
 | 2 | Delphi 12.3 Athens | Windows | x86_64 | PE32+ GUI | `tests/samples/heidisql/portable_x64/heidisql.exe` | 42 |
 | 3 | FPC 3.2.2 / Lazarus | macOS | aarch64 | Mach-O | `tests/samples/heidisql/macos/heidisql.app/Contents/MacOS/heidisql` | scan TBD |
 | 4 | FPC 3.2.2 / Lazarus | Windows | x86 | PE32 GUI | `tests/samples/doublecmd/win32/doublecmd/doublecmd.exe` | 114 |
@@ -37,18 +37,59 @@ Compiler fingerprints were verified by `strings` grep:
 - `LA.exe` - no explicit compiler version string (pre-XE Delphi did not emit one); Borland Delphi RTL registry markers present (`SOFTWARE\Borland\Delphi\RTL`, `Delphi Component`, `Delphi Picture`), and the upstream README requires Borland Delphi 7 to build.
 - `heidisql.unpacked.exe` (9.5) - no explicit compiler version string, but namespaced unit names (`System.Masks`, `Vcl.ActnList`, `Vcl.ComCtrls`, …) confirm Delphi XE2+; maintainer forum post identifies the XE5 migration as the build target for this release.
 
+## Own compiled fixtures
+
+`tests/samples/bcb6/` holds binaries we compiled ourselves from the sources in
+`tests/fixtures/bcb6/` with the C++Builder 6 command-line tools (Delphi 6
+`dcc32` 14.0 and Borland C++ 5.6), each with its linker map. Unlike the corpus
+above they are committed, their ground truth is exact, and `tests/programs.rs`
+requires them. See `tests/fixtures/bcb6/README.md` for the matrix and how to
+rebuild. `tests/dcu.rs` reads the compiled units and packages.
+
+| Sample | Compiler | Format |
+|--------|----------|--------|
+| `known.exe`, `tables.exe`, `deep.exe`, `gtforms.exe` | Delphi 6 (static RTL) | PE32 |
+| `gtframe.dcu`, `gtmain.dcu`, `gtchild.dcu` | Delphi 6 | DCU: `gtforms.exe`'s own units (`tests/locate.rs`) |
+| `known_rtl.exe`, `usepkg.exe` | Delphi 6 (runtime packages) | PE32 |
+| `gtpkg.bpl` / `gtpkg.dcp` / `gtpkg.dcu` | Delphi 6 | PE32 BPL / DCP / DCU |
+| `dcutypes.dcu` | Delphi 6 | DCU (a unit compiled on its own) |
+| `dcutypespkg.bpl` / `.dcp` / `.dcu` | Delphi 6 | PE32 BPL around `dcutypes` (export-name answer key) |
+| `cppknown.exe` | C++Builder 6 (VCL) | PE32 |
+| `cppplain.exe` | C++Builder 6 (no VCL) | PE32 |
+
+`tests/samples/d13/` holds units, packages and programs compiled by Delphi
+13 (`dcc32` / `dcc64` 37.0) from `tests/fixtures/d13/src` and the Pascal
+sources above, for Win32 and Win64 (`win32/`, `win64/`), each program and
+package with its (trimmed) linker map; `tests/dcu.rs`, `tests/programs.rs`
+and `tests/modern_rtti.rs` require them. See
+`tests/fixtures/d13/README.md`.
+
+| Sample | Compiler | Format |
+|--------|----------|--------|
+| `modern.dcu` | Delphi 13 (Win32, Win64) | DCU: documentation comments, type spellings, generics, anonymous methods |
+| `modernbin.exe` | Delphi 13 (Win32, Win64) | PE32 / PE32+: extended RTTI, attributes, indexed properties, record methods, a managed record, a delayed import (`tests/modern_rtti.rs`) |
+| `modernrt.dcu`, `gtframe.dcu`, `gtmain.dcu`, `gtchild.dcu` | Delphi 13 (Win32, Win64) | DCU: `modernbin.exe`'s and `gtforms.exe`'s own units (`tests/locate.rs`) |
+| `known.exe`, `known_rtl.exe`, `tables.exe`, `deep.exe`, `gtforms.exe`, `gtpkg.bpl`, `usepkg.exe` | Delphi 13 (Win32, Win64) | The C++Builder 6 fixture programs rebuilt (`tests/programs.rs` runs over both compilers' builds) |
+| `modernpkg.bpl` / `.dcp` | Delphi 13 (Win32, Win64) | BPL around `modern` (export-name answer key); the Win64 DCP is `PKX1` |
+| `dcutypes.dcu`, `dcutypespkg.bpl` / `.dcp` | Delphi 13 (Win32, Win64) | The Delphi 6 fixture unit rebuilt, a cross-version control |
+
 ## Provenance (how to re-download)
 
 ### 1 & 7 - IDR (Interactive Delphi Reconstructor) builds
 
 `Idr64.exe` and `IDR-cpp-dis.dll` are ready-built binaries shipped inside the
-IDR project repositories we mirrored for reference. They are Delphi-compiled
-tools, which conveniently makes them their own test subject.
+IDR project repositories. `Idr64.exe` is C++Builder 6 output - the project is
+IDR64's `Idr64.bpr` with `.cpp` sources, and the binary carries `Borland C++ - Copyright 2002 Borland
+Corporation` and the C++ runtime's `fb:C++HOOK` marker next to the Delphi 6
+RTL's `SOFTWARE\Borland\Delphi\RTL`. Being a VCL application, it is
+conveniently its own test subject. `IDR-cpp-dis.dll` carries none of those
+markers; its toolchain is unverified.
 
 ```sh
-# Already on disk under reference/; copy (what we did)
-cp reference/IDR64/Idr64.exe tests/samples/idr-builds/Idr64.exe
-cp reference/IDR-cpp/dis.dll tests/samples/others/IDR-cpp-dis.dll
+git clone --depth 1 https://github.com/crypto2011/IDR64
+git clone --depth 1 https://github.com/crypto2011/IDR
+cp IDR64/Idr64.exe tests/samples/idr-builds/Idr64.exe
+cp IDR/dis.dll tests/samples/others/IDR-cpp-dis.dll
 ```
 
 Source: [github.com/crypto2011/IDR64](https://github.com/crypto2011/IDR64),
@@ -171,3 +212,30 @@ mv /tmp/delphilint-extract/DelphiLint-1.3.0-Athens/DelphiLintClient-1.3.0-Athens
 Source: [github.com/integrated-application-development/delphilint](https://github.com/integrated-application-development/delphilint),
 LGPL-3.0. The release bundle also ships `-11Alexandria` and `-13Florence`
 variants if a second/third BPL diff point is wanted later.
+
+## IDR knowledge bases
+
+`tests/kb.rs` reads every published IDR knowledge base under
+`tests/samples/idr/` (gitignored, about 1.1 GB unpacked) and skips when the
+directory is absent: the Win32 sets of IDR (`kb2` ... `kb7`, `kb2005` ...
+`kb2014`, each with its `syskb`) in `win32/`, and IDR64's Win64 system sets
+(`syskb2012` ... `syskb2014`) in `win64/`.
+
+```sh
+mkdir -p tests/samples/idr/win32 tests/samples/idr/win64
+for v in 2 3 4 5 6 7 2005 2006 2007 2009 2010 2011 2012 2013 2014; do
+  curl -L -o "tests/samples/idr/win32/kb$v.7z" \
+    "https://raw.githubusercontent.com/crypto2011/IDR/master/kb$v.7z"
+  7z x -otests/samples/idr/win32 "tests/samples/idr/win32/kb$v.7z" && rm "tests/samples/idr/win32/kb$v.7z"
+  curl -L -o "tests/samples/idr/win32/syskb$v.bin" \
+    "https://raw.githubusercontent.com/crypto2011/IDR/master/syskb$v.bin"
+done
+for v in 2012 2013 2014; do
+  curl -L -o "tests/samples/idr/win64/syskb$v.bin" \
+    "https://raw.githubusercontent.com/crypto2011/IDR64/master/syskb$v.bin"
+done
+```
+
+Source: [github.com/crypto2011/IDR](https://github.com/crypto2011/IDR),
+[github.com/crypto2011/IDR64](https://github.com/crypto2011/IDR64). MIT
+licensed.

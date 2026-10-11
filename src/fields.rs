@@ -6,38 +6,34 @@
 //! one self-contained entry per field with a direct `PPTypeInfo` pointer).
 //! FPC emits yet another shape.
 //!
-//! ## Delphi legacy layout
+//! ## Delphi layout
 //!
-//! Source: `reference/pythia/pythia/core/structures.py:291-300,317-323`.
-//!
-//! ```text
-//!   Header:           u16     (entry count - if zero, layout is modern)
-//!   FieldTypesPtr:    ptr     (points at a separate array of class VMTs)
-//!   entries[Header]:
-//!     Offset:       u32       (instance-relative byte offset)
-//!     TypeIndex:    u16       (index into the class-types table)
-//!     Name:         ShortString
-//! ```
-//!
-//! ## Delphi modern layout
-//!
-//! Triggered when the first `u16` is `0`. Source: `structures.py:302-315`.
+//! Source: Delphi 6 `Classes.pas` (`TFieldClassTable`), RAD Studio 10
+//! Seattle's `System.TypInfo` (`TVmtFieldTable`, `TVmtFieldExEntry`),
+//! IDR64 `IDCGen.cpp` (`OutputFieldTable`); empirically validated
+//! on Delphi 6, 7, XE5, 10 Seattle (Win32 + Win64) and 12.
 //!
 //! ```text
-//!   unk2:          [u8; 4]    (4 zero/meta bytes)
-//!   NumFields:     u16
-//!   entries[NumFields]:
-//!     unk1:        u8
-//!     TypeInfoPtr: ptr        (PPTypeInfo - direct pointer)
-//!     Offset:      u32
-//!     Name:        ShortString
-//!     NumExtra:    u16
-//!     Extra:       [u8; NumExtra - 2]
+//!   Count:     u16           published fields
+//!   ClassTab:  ptr           class-types table (see Field::class_table)
+//!   entries[Count]:
+//!     Offset:    u32         instance-relative byte offset
+//!     TypeIndex: u16         index into ClassTab
+//!     Name:      ShortString
+//!   -- Delphi 2010+ only --
+//!   ExCount:   u16           every field the class declares
+//!   ex-entries[ExCount]:     see ExtendedField
 //! ```
+//!
+//! [`Field::iter`] reads the published entries; [`ExtendedField::iter`]
+//! reads the extension. (An earlier reading took a zero `Count` as a
+//! different "modern" layout with four unknown bytes: those were the
+//! `ClassTab` pointer, and the extension after a non-zero `Count` was
+//! never read.)
 //!
 //! ## FPC layout
 //!
-//! Source: `reference/fpc-source/rtl/objpas/typinfo.pp:214-250`.
+//! Source: FPC `rtl/objpas/typinfo.pp:214-250`.
 //!
 //! ```text
 //!   TVmtFieldTable:
@@ -55,9 +51,10 @@
 //!
 //! The field-name slice borrows from the caller's byte buffer.
 
-use std::str;
+use std::{ops::Range, str};
 
 use crate::{
+    extrtti::{AttributeEntry, Visibility},
     formats::BinaryContext,
     limits::{MAX_FIELDS_PER_CLASS, MAX_IDENTIFIER_BYTES},
     util::{read_ptr, read_short_string_at_file, read_u16, read_u32},
@@ -70,11 +67,11 @@ pub struct Field<'a> {
     /// Byte offset of the field within the instance (relative to the
     /// object's start).
     pub offset: u32,
-    /// Either a raw `PPTypeInfo` VA (modern Delphi / FPC) or a table-index
-    /// into the class-types array (legacy Delphi).
+    /// A table index into the class-types array (Delphi and FPC published
+    /// fields).
     pub type_ref: FieldTypeRef,
     /// Field name; borrows from the input buffer.
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
 }
 
 impl<'a> Field<'a> {
@@ -95,9 +92,10 @@ impl<'a> Field<'a> {
 /// How a field's type is referenced.
 #[derive(Debug, Clone, Copy)]
 pub enum FieldTypeRef {
-    /// Direct `PPTypeInfo` VA (modern Delphi / FPC).
+    /// Direct `PPTypeInfo` VA. No current decoder produces it: Delphi
+    /// 2010+ fields with a `PPTypeInfo` are [`ExtendedField`]s.
     TypeInfoPtr(u64),
-    /// Index into the class-types table (legacy Delphi).
+    /// Index into the class-types table (published fields).
     TypeIndex(u16),
 }
 
@@ -113,45 +111,126 @@ impl<'a> Field<'a> {
             VmtFlavor::Delphi => iter_delphi(ctx, vmt),
             VmtFlavor::Fpc => iter_fpc(ctx, vmt),
         };
-        result.unwrap_or_else(|| {
-            crate::__undelphi_trace_warn!(
-                vmt_va = vmt.va,
-                field_table = vmt.field_table,
-                "Field::iter: field-table walk bailed out"
-            );
-            Vec::new()
-        })
+        result.map_or_else(
+            || {
+                crate::__undelphi_trace_warn!(
+                    vmt_va = vmt.va,
+                    field_table = vmt.field_table,
+                    "Field::iter: field-table walk bailed out"
+                );
+                Vec::new()
+            },
+            |(fields, _)| fields,
+        )
+    }
+
+    /// Returns the virtual addresses `vmt`'s published-field table occupies:
+    /// its header and its entries.
+    ///
+    /// `None` when the class has no field table or its walk bails out. The
+    /// class-types table a legacy header points at lies elsewhere and is not
+    /// included.
+    pub fn table_extent(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Range<u64>> {
+        if vmt.field_table == 0 {
+            return None;
+        }
+        let base_off = ctx.va_to_file(vmt.field_table)?;
+        let end_off = match vmt.flavor {
+            VmtFlavor::Delphi => match read_extended_delphi(ctx, vmt) {
+                Some((_, end)) => end,
+                None => iter_delphi(ctx, vmt)?.1,
+            },
+            VmtFlavor::Fpc => iter_fpc(ctx, vmt)?.1,
+        };
+        let len = u64::try_from(end_off.checked_sub(base_off)?).ok()?;
+        Some(vmt.field_table..vmt.field_table.checked_add(len)?)
+    }
+
+    /// Reads the class-types table a legacy Delphi or FPC field table points
+    /// at: the VA stored in each of its `^TClass` cells, in
+    /// [`FieldTypeRef::TypeIndex`] order.
+    ///
+    /// Delphi points each cell at the target VMT's `vmtSelfPtr` slot, which
+    /// is the VMT base [`Vmt::va`] names; FPC stores a `PClass` that must be
+    /// dereferenced once. In a binary linked against runtime packages a cell
+    /// is an import slot. Empty when the class has no field table or no
+    /// published fields, or the table is malformed.
+    pub fn class_table(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<u64> {
+        read_class_table(ctx, vmt).map_or_else(Vec::new, |(_, cells)| cells)
+    }
+
+    /// Returns the virtual addresses `vmt`'s field class-types table
+    /// occupies: its `u16` count and its pointer-sized cells.
+    ///
+    /// `None` when [`Field::class_table`] finds no table.
+    pub fn class_table_extent(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Range<u64>> {
+        read_class_table(ctx, vmt).map(|(extent, _)| extent)
     }
 }
 
-fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Field<'a>>> {
+/// Walks the class-types table behind a legacy Delphi or FPC field table,
+/// answering its extent and the class reference in each cell.
+///
+/// Delphi 6 declares it as `TFieldClassTable = packed record Count:
+/// Smallint; Classes: array of ^TPersistentClass end` (`Classes.pas`); FPC's
+/// `TVmtFieldClassTab` is the same, but pointer-aligned on
+/// `FPC_REQUIRES_PROPER_ALIGNMENT` targets (`typinfo.pp`).
+fn read_class_table(ctx: &BinaryContext<'_>, vmt: &Vmt<'_>) -> Option<(Range<u64>, Vec<u64>)> {
+    if vmt.field_table == 0 {
+        return None;
+    }
+    let data = ctx.data();
+    let psize = vmt.pointer_size as usize;
+    let base_off = ctx.va_to_file(vmt.field_table)?;
+    // No published fields means nothing indexes a class table.
+    if vmt.flavor == VmtFlavor::Delphi && read_u16(data, base_off)? == 0 {
+        return None;
+    }
+    let aligned = vmt.flavor == VmtFlavor::Fpc && ptr_aligned_on_non_x86(ctx);
+    let after_count = base_off.checked_add(2)?;
+    let classtab_off = if aligned {
+        align_up(after_count, psize)?
+    } else {
+        after_count
+    };
+    let table_va = read_ptr(data, classtab_off, psize)?;
+    if table_va == 0 {
+        return None;
+    }
+    let table_off = ctx.va_to_file(table_va)?;
+    let count = usize::from(read_u16(data, table_off)?);
+    if count > MAX_FIELDS_PER_CLASS {
+        return None;
+    }
+    let mut cursor = table_off.checked_add(2)?;
+    if aligned {
+        cursor = align_up(cursor, psize)?;
+    }
+    let mut cells = Vec::with_capacity(count);
+    for _ in 0..count {
+        cells.push(read_ptr(data, cursor, psize)?);
+        cursor = cursor.checked_add(psize)?;
+    }
+    let len = u64::try_from(cursor.checked_sub(table_off)?).ok()?;
+    Some((table_va..table_va.checked_add(len)?, cells))
+}
+
+/// Walks a Delphi published-field table, answering its published fields
+/// and the file offset just past them - where the Delphi 2010+ extension
+/// begins.
+///
+/// The table always opens with `Count: u16`, `ClassTab: Pointer` and
+/// `Count` entries of `{Offset: u32; TypeIndex: u16; Name: ShortString}`,
+/// whether or not `Count` is zero (Delphi 6 `Classes.pas`; Seattle's
+/// `System.TypInfo` `TVmtFieldTable`).
+fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<(Vec<Field<'a>>, usize)> {
     let base_off = ctx.va_to_file(vmt.field_table)?;
     let data = ctx.data();
-    let header = read_u16(data, base_off)?;
+    let count = usize::from(read_u16(data, base_off)?);
+    if count > MAX_FIELDS_PER_CLASS {
+        return None;
+    }
     let psize = vmt.pointer_size as usize;
-    if header == 0 {
-        // Modern layout.
-        read_modern_delphi(data, base_off.checked_add(2)?, psize)
-    } else {
-        // Legacy layout.
-        read_legacy_delphi(data, base_off, header as usize, psize)
-    }
-}
-
-fn read_legacy_delphi(
-    data: &[u8],
-    base_off: usize,
-    count: usize,
-    psize: usize,
-) -> Option<Vec<Field<'_>>> {
-    // Header: u16 count + ptr fieldtypes_ptr.
-    // Layout: [count:u16][fieldtypes_ptr:ptr][entries...]
-    // Earlier field-types table is referenced by pythia but we don't
-    // dereference it - we return the index so callers can resolve it if
-    // they want.
-    if count == 0 || count > MAX_FIELDS_PER_CLASS {
-        return Some(Vec::new());
-    }
     let mut cursor = base_off.checked_add(2)?.checked_add(psize)?;
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
@@ -161,99 +240,137 @@ fn read_legacy_delphi(
         if !is_plausible_name(name) {
             return None;
         }
-        let advance = 6usize.checked_add(1)?.checked_add(name.len())?;
         out.push(Field {
             offset,
             type_ref: FieldTypeRef::TypeIndex(type_index),
             name,
         });
-        cursor = cursor.checked_add(advance)?;
+        cursor = cursor.checked_add(7)?.checked_add(name.len())?;
     }
-    Some(out)
+    Some((out, cursor))
 }
 
-fn read_modern_delphi(data: &[u8], after_header: usize, psize: usize) -> Option<Vec<Field<'_>>> {
-    // After the 2-byte header=0 marker, pythia documents 4 bytes of
-    // unk2 before NumFields. Some Delphi versions don't emit the unk2 -
-    // empirically the count is sometimes at +0 and sometimes at +4.
-    // Probe both offsets and accept whichever yields a plausible count.
-    for unk2_skip in [4usize, 0usize] {
-        let Some(count_off) = after_header.checked_add(unk2_skip) else {
-            continue;
-        };
-        let Some(count) = read_u16(data, count_off) else {
-            continue;
-        };
-        let count = count as usize;
-        if count == 0 || count > MAX_FIELDS_PER_CLASS {
-            continue;
-        }
-        let Some(entries_off) = count_off.checked_add(2) else {
-            continue;
-        };
-        let Some(fields) = try_modern_entries(data, entries_off, count, psize) else {
-            continue;
-        };
-        return Some(fields);
-    }
-    None
+/// One field of a class's Delphi 2010+ extended field table: every field
+/// the class declares - private, protected and public as well as
+/// published - with its type, offset and attributes.
+///
+/// After the published entries the table continues with `ExCount: u16` and
+/// `ExCount` records (Seattle `System.TypInfo` `TVmtFieldExEntry`; IDR64
+/// `IDCGen.cpp` `OutputFieldTable`):
+///
+/// ```text
+///   Flags:    u8            low two bits: visibility
+///   TypeRef:  PPTypeInfo
+///   Offset:   u32           instance-relative
+///   Name:     ShortString
+///   AttrData: u16 + bytes   length counts itself; 2 = no attributes
+/// ```
+///
+/// Validated against RAD Studio 10 Seattle's `TStringList` (Win32 and
+/// Win64): `FList`, `FCount`, `FCapacity`, `FSorted`, `FDuplicates`,
+/// `FCaseSensitive`, `FOnChange`, `FOnChanging`, `FOwnsObject`.
+#[derive(Debug, Clone, Copy)]
+pub struct ExtendedField<'a> {
+    /// Declared visibility.
+    pub visibility: Visibility,
+    /// Raw flags byte (low two bits are the visibility).
+    pub flags: u8,
+    /// `PPTypeInfo` of the field's type; an import slot when the type lives
+    /// in a runtime package.
+    pub type_ref: u64,
+    /// Byte offset of the field within the instance.
+    pub offset: u32,
+    name: &'a [u8],
+    /// Raw attribute entries (the `AttrData` body); empty without
+    /// attributes.
+    pub attributes_raw: &'a [u8],
 }
 
-fn try_modern_entries(
-    data: &[u8],
-    entries_off: usize,
-    count: usize,
-    psize: usize,
-) -> Option<Vec<Field<'_>>> {
-    let mut cursor = entries_off;
+impl<'a> ExtendedField<'a> {
+    /// Decodes the field's attributes (`[Name(...)]` before the
+    /// declaration). `ptr_size` is the binary's pointer size.
+    pub fn attributes(&self, ptr_size: usize) -> Vec<AttributeEntry<'a>> {
+        AttributeEntry::decode_block(self.attributes_raw, ptr_size).0
+    }
+
+    /// Field name, lossily decoded.
+    #[inline]
+    pub fn name(&self) -> &'a str {
+        str::from_utf8(self.name).unwrap_or("<non-ascii>")
+    }
+
+    /// Raw field-name bytes.
+    #[inline]
+    pub fn name_bytes(&self) -> &'a [u8] {
+        self.name
+    }
+
+    /// Decode the extended field table of `vmt`. Empty before Delphi 2009
+    /// (the table ends with the published entries), on FPC, and when any
+    /// entry fails validation.
+    pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
+        read_extended_delphi(ctx, vmt).map_or_else(Vec::new, |(fields, _)| fields)
+    }
+}
+
+/// Reads the Delphi 2010+ extension of `vmt`'s field table, answering its
+/// entries and the file offset just past them. Every entry must have a
+/// plausible name, an offset inside the instance and a well-formed
+/// attribute block.
+fn read_extended_delphi<'a>(
+    ctx: &BinaryContext<'a>,
+    vmt: &Vmt<'a>,
+) -> Option<(Vec<ExtendedField<'a>>, usize)> {
+    if vmt.field_table == 0 || !vmt.is_delphi_2009_or_later() {
+        return None;
+    }
+    let (_, legacy_end) = iter_delphi(ctx, vmt)?;
+    let data = ctx.data();
+    let count = usize::from(read_u16(data, legacy_end)?);
+    if count > MAX_FIELDS_PER_CLASS {
+        return None;
+    }
+    let psize = vmt.pointer_size as usize;
+    let mut cursor = legacy_end.checked_add(2)?;
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
-        // Layout per pythia `field_entry_modern`:
-        //   unk1:   u8
-        //   typeinfo_ptr: ptr
-        //   offset: u32
-        //   name:   ShortString
-        //   num_extra: u16
-        //   extra: [num_extra - 2] bytes
-        let _unk1 = *data.get(cursor)?;
-        let type_ref_off = cursor.checked_add(1)?;
-        let offset_off = type_ref_off.checked_add(psize)?;
-        let name_off = offset_off.checked_add(4)?;
-        let type_ref_va = read_ptr(data, type_ref_off, psize)?;
+        let flags = *data.get(cursor)?;
+        let type_ref = read_ptr(data, cursor.checked_add(1)?, psize)?;
+        let offset_off = cursor.checked_add(1)?.checked_add(psize)?;
         let offset = read_u32(data, offset_off)?;
+        let name_off = offset_off.checked_add(4)?;
         let name = read_short_string_at_file(data, name_off)?;
-        if !is_plausible_name(name) {
+        if !is_plausible_name(name) || (vmt.instance_size != 0 && offset >= vmt.instance_size) {
             return None;
         }
-        let after_name = name_off.checked_add(1)?.checked_add(name.len())?;
-        let num_extra = read_u16(data, after_name)? as usize;
-        if num_extra < 2 {
+        let attr_off = name_off.checked_add(1)?.checked_add(name.len())?;
+        let attr_len = usize::from(read_u16(data, attr_off)?);
+        if attr_len < 2 {
             return None;
         }
-        // record_size = unk1(1) + typeinfo_ptr(psize) + offset(4) + name(1+len) + extra(num_extra)
-        let record_size = 1usize
-            .checked_add(psize)?
-            .checked_add(4)?
-            .checked_add(1)?
-            .checked_add(name.len())?
-            .checked_add(num_extra)?;
-        out.push(Field {
+        let attributes_raw = data.get(attr_off.checked_add(2)?..attr_off.checked_add(attr_len)?)?;
+        out.push(ExtendedField {
+            visibility: Visibility::from_flags(flags),
+            flags,
+            type_ref,
             offset,
-            type_ref: FieldTypeRef::TypeInfoPtr(type_ref_va),
             name,
+            attributes_raw,
         });
-        cursor = cursor.checked_add(record_size)?;
+        cursor = attr_off.checked_add(attr_len)?;
     }
-    Some(out)
+    Some((out, cursor))
 }
 
-fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Field<'a>>> {
+/// Walks an FPC published-field table, answering its fields and the file
+/// offset just past the last.
+fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<(Vec<Field<'a>>, usize)> {
     let base_off = ctx.va_to_file(vmt.field_table)?;
     let data = ctx.data();
     let psize = vmt.pointer_size as usize;
     let count = read_u16(data, base_off)? as usize;
-    if count == 0 || count > MAX_FIELDS_PER_CLASS {
-        return Some(Vec::new());
+    if count > MAX_FIELDS_PER_CLASS {
+        return None;
     }
     // On Mach-O / ELF with FPC's `FPC_REQUIRES_PROPER_ALIGNMENT` (enabled
     // on non-x86 targets), the `ClassTab: pointer` field is pointer-aligned
@@ -291,7 +408,7 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Field<'a>>
         });
         cursor = cursor.checked_add(advance)?;
     }
-    Some(out)
+    Some((out, cursor))
 }
 
 fn ptr_aligned_on_non_x86(ctx: &BinaryContext<'_>) -> bool {

@@ -9,7 +9,7 @@
 //!
 //! ## On-disk format (authoritative source: FPC `TBinaryObjectReader`)
 //!
-//! File references below point at `reference/fpc-source/rtl/objpas/classes/reader.inc`
+//! File references below point at FPC `rtl/objpas/classes/reader.inc`
 //! and `.../classesh.inc:1690-1693` (the `TValueType` enum declaration).
 //!
 //! ```text
@@ -41,6 +41,8 @@
 //! the recursive `DfmObject` tree itself.
 
 use std::{borrow::Cow, str};
+
+use crate::util::extended_to_f64;
 
 /// TPF0 signature (first four bytes of every binary DFM/FMX/LFM/XFM stream).
 pub const TPF0_MAGIC: &[u8; 4] = b"TPF0";
@@ -184,11 +186,11 @@ pub struct DfmObject<'a> {
     /// Optional child position integer when `flags.child_pos` is set.
     pub child_pos: Option<i32>,
     /// Class name without any `.`-prefix unit qualification (e.g. `TButton`).
-    pub(crate) class_name: &'a [u8],
+    class_name: &'a [u8],
     /// Optional unit-name prefix if the file is TPF1 (e.g. `Vcl.StdCtrls`).
-    pub(crate) unit_name: Option<&'a [u8]>,
+    unit_name: Option<&'a [u8]>,
     /// Instance name (e.g. `Button1`). May be empty.
-    pub(crate) object_name: &'a [u8],
+    object_name: &'a [u8],
     /// Published properties in declaration order.
     pub properties: Vec<DfmProperty<'a>>,
     /// Nested child components in declaration order.
@@ -291,7 +293,7 @@ impl<'a> Iterator for DfmWalkWithPath<'a> {
 #[derive(Debug, Clone)]
 pub struct DfmProperty<'a> {
     /// Property name (e.g. `Caption`).
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
     /// Decoded value.
     pub value: DfmValue<'a>,
 }
@@ -405,7 +407,7 @@ impl<'a> DfmValue<'a> {
     /// UTF-16 byte buffers.
     pub fn as_text_strict(&self) -> Option<Cow<'_, str>> {
         match self {
-            DfmValue::String(b) => core::str::from_utf8(b).ok().map(Cow::Borrowed),
+            DfmValue::String(b) => str::from_utf8(b).ok().map(Cow::Borrowed),
             DfmValue::Utf16(b) => {
                 let (pairs, rest) = b.as_chunks::<2>();
                 if !rest.is_empty() {
@@ -418,10 +420,10 @@ impl<'a> DfmValue<'a> {
         }
     }
 
-    /// Decode the 10-byte Intel 80-bit extended-precision float
-    /// ([`DfmValue::Extended`]) to `f64`. Returns `None` for every other
-    /// variant. Lossy: precision is reduced from 64 mantissa bits to 52,
-    /// and exponents that overflow `f64` saturate to `±inf`.
+    /// Returns a floating-point value as `f64`: [`DfmValue::Single`] and
+    /// [`DfmValue::Double`] exactly, and the 10-byte Intel 80-bit
+    /// [`DfmValue::Extended`] rounded to the nearest `f64` (exponents beyond
+    /// `f64`'s range become `±inf`). `None` for every other variant.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             DfmValue::Extended(bytes) => Some(extended_to_f64(*bytes)),
@@ -430,47 +432,6 @@ impl<'a> DfmValue<'a> {
             _ => None,
         }
     }
-}
-
-/// Decode an Intel 80-bit extended-precision float (10 bytes,
-/// little-endian: 64-bit mantissa + 16-bit sign-and-exponent) into a
-/// best-effort `f64`. Lossy.
-///
-/// Layout: bytes 0..8 are the mantissa (with the integer bit explicit at
-/// position 63 - *not* an implicit-bit format like `f64`). Bytes 8..10
-/// hold the 15-bit biased exponent (bias 16383) plus a sign bit.
-fn extended_to_f64(b: [u8; 10]) -> f64 {
-    let mantissa = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
-    let se = u16::from_le_bytes([b[8], b[9]]);
-    let sign = (se >> 15) & 1;
-    let exp_x = (se & 0x7fff) as i32;
-
-    if exp_x == 0 && mantissa == 0 {
-        // Signed zero.
-        return if sign == 1 { -0.0 } else { 0.0 };
-    }
-    if exp_x == 0x7fff {
-        // Inf / NaN. The sign of NaN is preserved.
-        return if mantissa & 0x7fff_ffff_ffff_ffff == 0 {
-            if sign == 1 {
-                f64::NEG_INFINITY
-            } else {
-                f64::INFINITY
-            }
-        } else {
-            f64::NAN
-        };
-    }
-
-    // Unbiased exponent. The 80-bit format has bias 16383; f64 has bias
-    // 1023. The leading integer bit of the mantissa is explicit, so the
-    // 64-bit mantissa already includes the integer-1 bit at position 63.
-    let unbiased = exp_x.saturating_sub(16383);
-    // Scale the 64-bit mantissa (treated as Q1.63) to f64. Each bit below
-    // the leading 1 is 2^-i. Multiplying by 2^unbiased recovers the value.
-    let mant_f = (mantissa as f64) / (1u64 << 63) as f64;
-    let value = mant_f * 2f64.powi(unbiased);
-    if sign == 1 { -value } else { value }
 }
 
 /// Depth-first walker over a parsed DFM tree.
@@ -544,7 +505,7 @@ impl<'a> DfmObject<'a> {
 /// The scan is byte-granular rather than pointer-aligned because a packer
 /// may relocate streams to arbitrary file offsets; `DfmObject::parse`
 /// self-bounds each candidate, so over-scanning is safe.
-pub(crate) fn scan_streams(data: &[u8], max: usize) -> Vec<(usize, DfmObject<'_>)> {
+pub fn scan_streams(data: &[u8], max: usize) -> Vec<(usize, DfmObject<'_>)> {
     let mut out = Vec::new();
     for i in 0..data.len() {
         if out.len() >= max {
@@ -1210,7 +1171,7 @@ mod tests {
 
     /// Lock the TPF0 `TValueType` byte ordering against the authoritative
     /// FPC declaration in
-    /// `reference/fpc-source/rtl/objpas/classes/classesh.inc:1690-1693`.
+    /// FPC `rtl/objpas/classes/classesh.inc:1690-1693`.
     /// A drift here would silently misdecode every form stream - every
     /// component property would land on the wrong arm of `read_value`.
     #[test]

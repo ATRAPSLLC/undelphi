@@ -1,5 +1,159 @@
 # Changelog
 
+## 0.4.0
+
+Capability release. undelphi now reads Delphi's compiled units (`.dcu`,
+`.dcp`) as well as binaries, places a program's DCU declarations in its
+binary, reads and writes IDR knowledge bases and builds them from DCUs, and
+names what a binary imports from runtime packages. Delphi 2010+ metadata
+(attributes, record methods, indexed properties) and Delphi 13 are covered,
+and `structure_extents` tells a disassembler where the metadata lies in the
+code section. A few API changes break compatibility; see **Changed**.
+
+### Added
+
+- **Compiled units.** The `dcu` module decodes Delphi compiled units
+  (`.dcu`, `dcu::Unit`) and compiled packages (`.dcp`, `dcu::package`) from
+  Delphi 2 to 13: every declaration of the interface and implementation,
+  every type with its full layout (records without RTTI, private class
+  fields, enumeration names, procedural types), routines with parameters,
+  results and calling conventions, uses lists with imported symbols, and the
+  type and address tables that resolve every cross-reference.
+  `Unit::instance_size` gives a class's VMT instance size (the declared size
+  plus the Delphi 2009+ monitor slot). The records added after 10.3 are read
+  too: `Modifier::Documentation` (XML documentation comments),
+  `Modifier::DeclaredType` with `TypeSpelling` (the type as the source spells
+  it), `spellings` on `Modifier::TemplateParams` and
+  `TypeKind::TemplateCall`, the C++ header records (`Modifier::CppFlags`,
+  `Modifier::CppNames`) and `Unit::image_base`. Verified on every unit of
+  C++Builder 6, RAD Studio 10 Seattle and RAD Studio 13 (Win32, Win64,
+  Win64x), and fact for fact against DCU32INT. `dcu::library::Library`
+  indexes a compiler's unit directories and resolves types across units.
+  Examples `dcu_check`, `dcu_dump`, `dcu_facts`.
+- **DCU code.** `dcu::Unit::block` keeps a unit's code and data block,
+  `Unit::memory` assigns each routine, typed constant and RTTI record its
+  part of it, and `Unit::fixup_size` gives each relocation's width, so a DCU
+  routine can be matched against a binary byte for byte.
+- **Export names.** `dcu::mangle::Mangler` generates the mangled export name
+  of a DCU routine - Borland on Win32 (pre-2009 and modern dialects),
+  Itanium on Win64 (`dcu::itanium`) - so each export of a runtime package
+  binds to its declaration, overloads and generic instances included: 98 -
+  99 % of Seattle's and Delphi 6's exports, 99.6 % of Delphi 13's Win32
+  exports with a generated routine path and 98.3 % of its Win64 exports.
+  Long Borland names are shortened as the compiler does (MD5, base64).
+  Example `mangle_check`.
+- **Locating DCU declarations in a binary.** `DelphiBinary::locate` (and
+  `dcu::locate::Locator` underneath) places a program's routines, typed
+  constants, RTTI records, variables and thread variables in its binary with
+  the compiler's units: each routine is verified byte for byte, and its
+  relocations (`dcu::locate::Encoding`) lead to the next. It names the unit
+  initialization table's slots (`dcu::locate::InitOwner`: a unit or a class
+  constructor pair) and the thread variables with their TLS offsets
+  (`Location::thread_variables`). On the fixture programs about 4 300
+  (Delphi 13) and 1 200 (Delphi 6) placements per program check against the
+  linker maps, and none is wrong.
+- **IDR knowledge bases.** The `kb` module reads IDR's `kb*.bin` /
+  `syskb*.bin`: `KnowledgeBase::parse` reads one without copying - units,
+  constants, types (fields, properties, methods), variables, resource
+  strings and routines (prototype, code, relocation mask, named fixups) -
+  with name and unit lookups through the file's own indexes.
+  `Contents::to_bytes` writes the format byte for byte as IDR did (the
+  lookup orders sorted as Delphi's `TList.Sort` sorts); every published file
+  reads and writes back unchanged. `Dump::matches` tests code against a
+  record ignoring relocated bytes. `kb::build` makes the records from a
+  release's DCUs the way IDR's maker did - DCU32INT's type notation, the
+  maker's value format and its naming of compiler-generated declarations;
+  built from the Delphi 6 library they match kb6's wherever the units are
+  the same. Examples `kb_dump`, `kb_build`, `kb_diff`.
+- **Runtime-package imports and exports.** The `imports` module and
+  `DelphiBinary::{imports, import_at, required_packages, external_parent,
+  field_class_import, exports}` name the types, classes and routines a
+  binary imports from runtime packages (or a package exports) by demangling
+  Borland and Itanium package symbols (`@$xp$14System@Integer`,
+  `@Classes@TPersistent@`, `_ZTVN6System7Classes11TPersistentE`), delay-loaded
+  imports included (`Import::is_delayed`). `DetectionSource::PackageImports`
+  identifies the compiler from an `rtlNN.bpl` / `vclNN.bpl` import and
+  `DetectionSource::CppRuntime` from the C++ runtime's markers.
+- **Delphi 2010+ binary metadata.** `DelphiBinary::decode_attribute`
+  resolves an attribute's type and constructor and decodes its arguments;
+  attributes are exposed on fields (`ExtendedField::attributes`), properties
+  (`ExtendedProperty::attributes`), methods and parameters
+  (`MethodSignature::attributes`, `MethodParam::attributes`), records and
+  record fields. Records carry their methods, constructors and operators with
+  signatures (`RecordInfo::methods`, `rtti::RecordMethod`) and a managed
+  record's operator table (`rtti::RecordOperators`); `tkMRecord` decodes as a
+  record. `DelphiBinary::indexed_properties` reads indexed (array) properties
+  and `DelphiBinary::extended_methods` the extended-method entries, whose
+  flags decode through `signatures::ExtendedMethodInfo`. Delphi 13 is
+  detected by name (`Delphi 13 Florence`, `rtl370.bpl`).
+- **Runtime tables.** `DelphiBinary::unit_init_table` decodes the unit
+  initialization table (`unitinit`): each unit's initialization and
+  finalization in startup order, Delphi 2010+ class constructor pairs, and
+  the 2010+ type table. `DelphiBinary::resource_strings` joins the string
+  table with each `resourcestring` record (`resstrings`), and
+  `DelphiBinary::interface_rtti` decodes the method table of an interface
+  compiled with method info (`intfrtti`).
+- **Published-field and automation tables.** `DelphiBinary::field_class` /
+  `fields::Field::class_table` resolve legacy published fields through the
+  field class table, so `field_type` and `field_type_detail` type them (0 ->
+  100 % of published fields on the Delphi 7 and Delphi 12 samples).
+  `DelphiBinary::auto_entries` / `vmttables::AutoEntry` decode the
+  `vmtAutoTable` of `automated` sections.
+- **Structure extents.** `DelphiBinary::structure_extents` returns where each
+  structure the crate reads lies in the image (`extents::StructureExtent`,
+  `extents::StructureKind`): VMT headers, virtual-method arrays, class names,
+  the published method, field, field class, dynamic, interface and
+  automation tables, interface vtables and RTTI records, each measured by the
+  walk that decodes it, plus the string constants (`StringLiteral`),
+  `resourcestring` records, the unit initialization table and GUID constants
+  Delphi places in the code section - so a disassembler can keep them out of
+  the code it decodes.
+- **Own compiled fixtures.** C++Builder 6 / Delphi 6 programs, units and
+  packages (`tests/fixtures/bcb6/`, samples in `tests/samples/bcb6/`) and
+  Delphi 13 Win32 / Win64 builds of them plus `modernbin.exe` and `modern`
+  units for the 2010+ metadata (`tests/fixtures/d13/`, `tests/samples/d13/`),
+  with build scripts, linker maps and toolchain provenance;
+  `tests/programs.rs`, `tests/modern_rtti.rs`, `tests/dcu.rs`,
+  `tests/locate.rs`, `tests/extents.rs` and `tests/kb.rs` assert against them.
+
+### Changed
+
+- `signatures::MethodParam`, `rtti::SignatureParam` and `rtti::RecordField`
+  are no longer `Copy` (they carry attributes).
+- `AccessKind::Virtual` values are VMT byte offsets (as stored on disk), and
+  `Access::resolve` resolves them correctly; it previously treated them as
+  slot indexes.
+- A Delphi getter / setter of 0 decodes as `AccessKind::None` and a
+  `stored True` / `False` constant as `AccessKind::Const` (1 / 0), not
+  `Static`; `code_entrypoints` no longer emits entrypoints at VA 0 / 1.
+- C++Builder output is reported as `Compiler::CppBuilder` (detected from
+  `fb:C++HOOK` / `___CPPdebugHook`).
+- `EnumInfo::unit_name` is `None` when no plausible unit name follows the
+  values (C++Builder `bool`); nameless `tkMethod` records (C++Builder
+  `__closure` types) are accepted.
+- The unit init table's documentation states that from Delphi 2010 its
+  entries include class constructor / destructor pairs, not only units.
+
+### Fixed
+
+- Win64 `TObject` header virtuals were named three slots off: Win64 puts the
+  `CPP_ABI_1` .. `CPP_ABI_3` virtuals in front of `Destroy`, so the slot
+  named `Destroy` was a C++ ABI stub (every Win64 binary since XE2). Delphi
+  2009+'s `ToString`, `GetHashCode` and `Equals` slots are now named too.
+- A class without virtual methods of its own no longer reports the data
+  after its VMT as a virtual method.
+- `tkProcedure` signatures with two or more parameters decode (the
+  per-parameter attribute block was not skipped).
+- A class with attributes but no extended properties keeps its attributes.
+- Win64 automation tables (`automated` sections) decode.
+- A typeinfo import in the C++ global namespace (`@$xp$7Boolean`) demangles,
+  with an empty unit.
+- Form `Extended` values (`DfmValue::as_f64`) round to the nearest `f64`
+  instead of scaling through `powi`, so subnormal results and values near
+  `f64`'s limits convert exactly.
+- `Idr64.exe` is identified as C++Builder 6 (it is a C++Builder project), not
+  Delphi.
+
 ## 0.3.3
 
 Maintenance release. No API or behavior changes.

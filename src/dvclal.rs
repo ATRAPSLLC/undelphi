@@ -5,8 +5,7 @@
 //! resource of type `RT_RCDATA`. The value encodes which SKU of the compiler
 //! produced the binary.
 //!
-//! Values are taken verbatim from the community-verified table in
-//! `RESEARCH.md §3.1`:
+//! The recognised values are the community-verified ones:
 //!
 //! | Edition | 16 bytes (hex) |
 //! |---------|----------------|

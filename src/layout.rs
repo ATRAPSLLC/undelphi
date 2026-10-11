@@ -95,6 +95,31 @@ pub fn reconstruct<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>) -> Vec<LayoutE
             },
         );
     }
+    // Delphi 2010+: every field of the class and its ancestors, named and
+    // typed, from the extended field tables. Published entries above win
+    // for the offsets they cover.
+    let mut owner = Some(class);
+    while let Some(c) = owner {
+        for f in bin.extended_fields(c) {
+            let type_name = bin
+                .extended_field_type(c, &f)
+                .map(|h| h.name().to_owned())
+                .or_else(|| {
+                    bin.import_at(f.type_ref)
+                        .and_then(|i| i.symbol())
+                        .map(|s| format!("{}.{}", s.unit, s.name))
+                });
+            let managed = managed_offsets.contains_key(&u64::from(f.offset));
+            slots
+                .entry(f.offset)
+                .or_insert_with(|| LayoutKind::NamedField {
+                    name: f.name().to_owned(),
+                    type_name,
+                    managed,
+                });
+        }
+        owner = bin.parent_class(c);
+    }
     for (off, ty) in &managed_offsets {
         let off32 = *off as u32;
         slots

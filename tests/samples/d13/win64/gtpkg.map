@@ -1,0 +1,265 @@
+
+ Start                 Length     Name                   Class
+ 0001:0000000000401000 000025FCH .text                   CODE
+ 0002:0000000000404000 000002F0H .data                   DATA
+ 0003:0000000000405000 00000060H .bss                    BSS
+ 0004:0000000000400000 00000000H .tls                    TLS
+ 0005:000000000040B000 00000168H .pdata                  PDATA
+
+
+Detailed map of segments
+
+ 0001:00000000 00000188 C=CODE     S=.text    G=(none)   M=System   ALIGN=4
+ 0001:00000188 000018C8 C=CODE     S=.text    G=(none)   M=SysInit  ALIGN=4
+ 0001:00001A50 00000018 C=CODE     S=.text    G=(none)   M=System.Types ALIGN=4
+ 0001:00001A68 00000020 C=CODE     S=.text    G=(none)   M=System.UITypes ALIGN=4
+ 0001:00001A88 00000020 C=CODE     S=.text    G=(none)   M=Winapi.Windows.PkgHelper ALIGN=4
+ 0001:00001AA8 00000028 C=CODE     S=.text    G=(none)   M=Winapi.Windows ALIGN=4
+ 0001:00001AD0 00000020 C=CODE     S=.text    G=(none)   M=Winapi.Messages ALIGN=4
+ 0001:00001AF0 00000018 C=CODE     S=.text    G=(none)   M=System.SysConst ALIGN=4
+ 0001:00001B08 00000020 C=CODE     S=.text    G=(none)   M=Winapi.ImageHlp ALIGN=4
+ 0001:00001B28 00000020 C=CODE     S=.text    G=(none)   M=Winapi.SHFolder ALIGN=4
+ 0001:00001B48 00000020 C=CODE     S=.text    G=(none)   M=Winapi.PsAPI ALIGN=4
+ 0001:00001B68 00000020 C=CODE     S=.text    G=(none)   M=System.RTLConsts ALIGN=4
+ 0001:00001B88 00000020 C=CODE     S=.text    G=(none)   M=System.Character ALIGN=4
+ 0001:00001BA8 00000020 C=CODE     S=.text    G=(none)   M=System.Internal.ExcUtils ALIGN=4
+ 0001:00001BC8 000000A0 C=CODE     S=.text    G=(none)   M=System.SysUtils ALIGN=4
+ 0001:00001C68 00000020 C=CODE     S=.text    G=(none)   M=System.VarUtils ALIGN=4
+ 0001:00001C88 00000020 C=CODE     S=.text    G=(none)   M=System.Variants ALIGN=4
+ 0001:00001CA8 00000028 C=CODE     S=.text    G=(none)   M=Winapi.ActiveX ALIGN=4
+ 0001:00001CD0 00000018 C=CODE     S=.text    G=(none)   M=System.TypInfo ALIGN=4
+ 0001:00001CE8 00000020 C=CODE     S=.text    G=(none)   M=System.Hash ALIGN=4
+ 0001:00001D08 00000020 C=CODE     S=.text    G=(none)   M=System.Math ALIGN=4
+ 0001:00001D28 00000080 C=CODE     S=.text    G=(none)   M=System.Generics.Defaults ALIGN=4
+ 0001:00001DA8 00000020 C=CODE     S=.text    G=(none)   M=System.Generics.Collections ALIGN=4
+ 0001:00001DC8 00000040 C=CODE     S=.text    G=(none)   M=System.TimeSpan ALIGN=4
+ 0001:00001E08 00000020 C=CODE     S=.text    G=(none)   M=System.Diagnostics ALIGN=4
+ 0001:00001E28 00000020 C=CODE     S=.text    G=(none)   M=System.SyncObjs ALIGN=4
+ 0001:00001E48 00000040 C=CODE     S=.text    G=(none)   M=System.Rtti ALIGN=4
+ 0001:00001E88 00000140 C=CODE     S=.text    G=(none)   M=System.Classes ALIGN=4
+ 0001:00001FC8 00000278 C=CODE     S=.text    G=(none)   M=gtshared ALIGN=4
+ 0001:00002240 000003BC C=CODE     S=.text    G=(none)   M=.gtpkg   ALIGN=4
+ 0002:00000000 00000178 C=DATA     S=.data    G=DGROUP   M=SysInit  ALIGN=4
+ 0002:00000178 00000008 C=DATA     S=.data    G=DGROUP   M=Winapi.Windows ALIGN=4
+ 0002:00000180 00000008 C=DATA     S=.data    G=DGROUP   M=Winapi.Messages ALIGN=4
+ 0002:00000188 00000008 C=DATA     S=.data    G=DGROUP   M=Winapi.ActiveX ALIGN=4
+ 0002:00000190 00000010 C=DATA     S=.data    G=DGROUP   M=gtshared ALIGN=4
+ 0002:000001A0 00000150 C=DATA     S=.data    G=DGROUP   M=.gtpkg   ALIGN=4
+ 0003:00000000 00000050 C=BSS      S=.bss     G=DGROUP   M=SysInit  ALIGN=4
+ 0003:00000050 00000004 C=BSS      S=.bss     G=DGROUP   M=Winapi.Windows ALIGN=4
+ 0003:00000054 00000004 C=BSS      S=.bss     G=DGROUP   M=Winapi.Messages ALIGN=4
+ 0003:00000058 00000004 C=BSS      S=.bss     G=DGROUP   M=Winapi.ActiveX ALIGN=4
+ 0003:0000005C 00000004 C=BSS      S=.bss     G=DGROUP   M=gtshared ALIGN=4
+ 0005:00000000 000000FC C=PDATA    S=.pdata   G=(none)   M=SysInit  ALIGN=4
+ 0005:000000FC 00000018 C=PDATA    S=.pdata   G=(none)   M=Winapi.Windows ALIGN=4
+ 0005:00000114 00000018 C=PDATA    S=.pdata   G=(none)   M=Winapi.Messages ALIGN=4
+ 0005:0000012C 00000018 C=PDATA    S=.pdata   G=(none)   M=Winapi.ActiveX ALIGN=4
+ 0005:00000144 00000024 C=PDATA    S=.pdata   G=(none)   M=gtshared ALIGN=4
+
+
+  Address             Publics by Name
+
+ 0001:00002240       .gtpkg..gtpkg
+ 0001:000025D0       .gtpkg.@GetPackageInfoTable
+ 0001:000025E0       .gtpkg.@PackageLoad
+ 0001:000025F0       .gtpkg.@PackageUnload
+ 0002:00000298       .gtpkg.__init_record_Gtshared
+ 0002:000001E8       .gtpkg.__si_init_record_Sysinit
+ 0002:00000190       gtshared.$unwind$_ZN8Gtshared10MakeSharedEv
+ 0002:00000198       gtshared.$unwind$_ZN8Gtshared12FinalizationEv
+ 0002:0000019C       gtshared.$unwind$_ZN8Gtshared14initializationEv
+ 0003:0000005C       gtshared..2
+ 0001:00001FC8       gtshared..TGTShared
+ 0001:00002220       gtshared.Finalization
+ 0001:00002230       gtshared.gtshared
+ 0001:000021C0       gtshared.MakeShared
+ 0002:0000010C       SysInit.$unwind$delayhlp
+ 0002:00000050       SysInit.$unwind$_ZN7Sysinit10GetTlsSizeEv
+ 0002:0000016C       SysInit.$unwind$_ZN7Sysinit12FinalizationEv
+ 0002:000000FC       SysInit.$unwind$_ZN7Sysinit12_PackageLoadEPN6System16PackageInfoTableE
+ 0002:00000064       SysInit.$unwind$_ZN7Sysinit13ExitThreadTLSEv
+ 0002:00000054       SysInit.$unwind$_ZN7Sysinit13InitThreadTLSEv
+ 0002:00000010       SysInit.$unwind$_ZN7Sysinit14AllocTlsBufferEi
+ 0002:0000006C       SysInit.$unwind$_ZN7Sysinit14ExitProcessTLSEv
+ 0002:00000174       SysInit.$unwind$_ZN7Sysinit14initializationEv
+ 0002:0000005C       SysInit.$unwind$_ZN7Sysinit14InitProcessTLSEv
+ 0002:00000104       SysInit.$unwind$_ZN7Sysinit14_PackageUnloadEPN6System16PackageInfoTableE
+ 0002:000000A8       SysInit.$unwind$_ZN7Sysinit14__dbkDummyProcEv
+ 0002:000000AC       SysInit.$unwind$_ZN7Sysinit14__dbkFCallArgsEPvS0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_S0_
+ 0002:00000098       SysInit.$unwind$_ZN7Sysinit16InitializeModuleEv
+ 0002:000000A0       SysInit.$unwind$_ZN7Sysinit18UninitializeModuleEv
+ 0002:000000B4       SysInit.$unwind$_ZN7Sysinit19__dbk_fcall_wrapperEv
+ 0002:000000F0       SysInit.$unwind$_ZN7Sysinit8_InitPkgEyiPv
+ 0003:00000048       SysInit...__puiHead
+ 0003:00000030       SysInit..1
+ 0003:00000048       SysInit..bss.delayhlp
+ 0001:00000C00       SysInit..text.delayhlp
+ 0001:00000B40       SysInit.@InitPkg
+ 0001:00000BC0       SysInit.@PackageLoad
+ 0001:00000BE0       SysInit.@PackageUnload
+ 0001:000003E0       SysInit.@_dbkDummyProc
+ 0001:000003F0       SysInit.@_dbkFCallArgs
+ 0001:000007F0       SysInit.@_dbk_fcall_wrapper
+ 0001:00000C00       SysInit.@_delayLoadHelper2
+ 0001:00000EE0       SysInit.@_FUnloadDelayLoadedDLL2
+ 0001:00001590       SysInit.@_HrLoadAllImportsForDll
+ 0003:00000028       SysInit.@_pfnDliFailureHook2
+ 0003:00000020       SysInit.@_pfnDliNotifyHook2
+ 0001:00000240       SysInit.AllocTlsBuffer
+ 0003:00000018       SysInit.dbkFCallWrapperAddr
+ 0001:00000350       SysInit.ExitProcessTLS
+ 0001:00000300       SysInit.ExitThreadTLS
+ 0001:00001A20       SysInit.Finalization
+ 0001:00000190       SysInit.FreeLibrary
+ 0001:00000200       SysInit.GetLastError
+ 0001:00000230       SysInit.GetProcAddress
+ 0001:00000260       SysInit.GetTlsSize
+ 0003:00000008       SysInit.HInstance
+ 0001:00000380       SysInit.InitializeModule
+ 0001:000002C0       SysInit.InitProcessTLS
+ 0001:00000270       SysInit.InitThreadTLS
+ 0001:00000210       SysInit.LoadLibraryA
+ 0001:000001A0       SysInit.LocalAlloc
+ 0001:000001B0       SysInit.LocalFree
+ 0002:00000018       SysInit.Module
+ 0003:00000000       SysInit.ModuleIsLib
+ 0003:00000001       SysInit.ModuleIsPackage
+ 0002:00000008       SysInit.PtrToNil
+ 0001:00000220       SysInit.RaiseException
+ 0001:000016F0       SysInit.ShutdownDelayHelp2
+ 0001:00001A40       SysInit.SysInit
+ 0001:000001C0       SysInit.TlsAlloc
+ 0003:00000038       SysInit.tlsBuffer
+ 0001:000001D0       SysInit.TlsFree
+ 0001:000001E0       SysInit.TlsGetValue
+ 0002:00000000       SysInit.TlsIndex
+ 0004:00000000       SysInit.TlsLast
+ 0002:00000078       SysInit.TlsProc
+ 0001:000001F0       SysInit.TlsSetValue
+ 0001:000003A0       SysInit.UninitializeModule
+ 0003:00000040       SysInit.UseTlsAPI
+ 0003:FFFFB000       SysInit.__ImageBase
+ 0001:000000E0       System.@DelphiExceptionHandler
+ 0001:000000F0       System.@DestroyException
+ 0001:00000100       System.@DoneExcept
+ 0001:00000110       System.@PackageLoad
+ 0001:00000120       System.@PackageUnload
+ 0001:00000130       System.@RunError
+ 0001:00000140       System.@UStrAsg
+ 0001:00000170       System.Finalization
+ 0001:00000150       System.RegisterModule
+ 0001:00000180       System.System
+ 0001:000000B0       System.TObject.AfterConstruction
+ 0001:000000C0       System.TObject.BeforeDestruction
+ 0001:00000020       System.TObject.CPP_ABI_1
+ 0001:00000030       System.TObject.CPP_ABI_2
+ 0001:00000040       System.TObject.CPP_ABI_3
+ 0001:00000050       System.TObject.Create
+ 0001:000000A0       System.TObject.DefaultHandler
+ 0001:000000D0       System.TObject.Dispatch
+ 0001:00000060       System.TObject.Equals
+ 0001:00000010       System.TObject.FreeInstance
+ 0001:00000070       System.TObject.GetHashCode
+ 0001:00000000       System.TObject.NewInstance
+ 0001:00000080       System.TObject.SafeCallException
+ 0001:00000090       System.TObject.ToString
+ 0001:00000160       System.UnregisterModule
+ 0001:00001B90       System.Character.Finalization
+ 0001:00001BA0       System.Character.System.Character
+ 0001:00001FB0       System.Classes.Finalization
+ 0001:00001FC0       System.Classes.System.Classes
+ 0001:00001F90       System.Classes.TBaseAsyncResult.Create@
+ 0001:00001FA0       System.Classes.TBaseAsyncResult.Destroy@
+ 0001:00001EB0       System.Classes.TBinaryWriter.Create@
+ 0001:00001F50       System.Classes.TBinaryWriter.Destroy@
+ 0001:00001F40       System.Classes.TComponent.Create@
+ 0001:00001EA0       System.Classes.TComponent.Destroy@
+ 0001:00001EC0       System.Classes.TFieldsCache.Create@
+ 0001:00001ED0       System.Classes.TFieldsCache.Destroy@
+ 0001:00001F60       System.Classes.TLoginCredentialService.Create@
+ 0001:00001F70       System.Classes.TLoginCredentialService.Destroy@
+ 0001:00001E90       System.Classes.TObserverMapping.Create@
+ 0001:00001F80       System.Classes.TObserverMapping.Destroy@
+ 0001:00001EF0       System.Classes.TPersistent.Assign
+ 0001:00001F00       System.Classes.TPersistent.AssignTo
+ 0001:00001F10       System.Classes.TPersistent.DefineProperties
+ 0001:00001EE0       System.Classes.TPersistent.Destroy
+ 0001:00001F20       System.Classes.TThread.Create@
+ 0001:00001F30       System.Classes.TThread.Destroy@
+ 0001:00001E10       System.Diagnostics.Finalization
+ 0001:00001E20       System.Diagnostics.System.Diagnostics
+ 0001:00001DB0       System.Generics.Collections.Finalization
+ 0001:00001DC0       System.Generics.Collections.System.Generics.Collections
+ 0001:00001D90       System.Generics.Defaults.Finalization
+ 0001:00001DA0       System.Generics.Defaults.System.Generics.Defaults
+ 0001:00001D40       System.Generics.Defaults.TIStringComparer.Create@
+ 0001:00001D70       System.Generics.Defaults.TIStringComparer.Destroy@
+ 0001:00001D50       System.Generics.Defaults.TPointerComparer.Create@
+ 0001:00001D80       System.Generics.Defaults.TPointerComparer.Destroy@
+ 0001:00001D30       System.Generics.Defaults.TStringComparer.Create@
+ 0001:00001D60       System.Generics.Defaults.TStringComparer.Destroy@
+ 0001:00001CF0       System.Hash.Finalization
+ 0001:00001D00       System.Hash.System.Hash
+ 0001:00001BB0       System.Internal.ExcUtils.Finalization
+ 0001:00001BC0       System.Internal.ExcUtils.System.Internal.ExcUtils
+ 0001:00001D10       System.Math.Finalization
+ 0001:00001D20       System.Math.System.Math
+ 0001:00001B70       System.RTLConsts.Finalization
+ 0001:00001B80       System.RTLConsts.System.RTLConsts
+ 0001:00001E70       System.Rtti.Finalization
+ 0001:00001E80       System.Rtti.System.Rtti
+ 0001:00001E60       System.Rtti.TValue.Create@
+ 0001:00001E50       System.Rtti.TValue.Destroy@
+ 0001:00001E30       System.SyncObjs.Finalization
+ 0001:00001E40       System.SyncObjs.System.SyncObjs
+ 0001:00001AF0       System.SysConst.Finalization
+ 0001:00001B00       System.SysConst.System.SysConst
+ 0001:00001C00       System.SysUtils.Exception.Create@
+ 0001:00001C10       System.SysUtils.Exception.Destroy@
+ 0001:00001C50       System.SysUtils.Finalization
+ 0001:00001C60       System.SysUtils.System.SysUtils
+ 0001:00001BE0       System.SysUtils.TEncoding.Create@
+ 0001:00001C30       System.SysUtils.TEncoding.Destroy@
+ 0001:00001BD0       System.SysUtils.TLanguages.Create@
+ 0001:00001C20       System.SysUtils.TLanguages.Destroy@
+ 0001:00001C40       System.SysUtils.TOSVersion.Create@
+ 0001:00001BF0       System.SysUtils.TOSVersion.Destroy@
+ 0001:00001DF0       System.TimeSpan.Finalization
+ 0001:00001E00       System.TimeSpan.System.TimeSpan
+ 0001:00001DE0       System.TimeSpan.TTimeSpan.Create@
+ 0001:00001DD0       System.TimeSpan.TTimeSpan.Destroy@
+ 0001:00001A50       System.Types.Finalization
+ 0001:00001A60       System.Types.System.Types
+ 0001:00001CD0       System.TypInfo.Finalization
+ 0001:00001CE0       System.TypInfo.System.TypInfo
+ 0001:00001A70       System.UITypes.Finalization
+ 0001:00001A80       System.UITypes.System.UITypes
+ 0001:00001C90       System.Variants.Finalization
+ 0001:00001CA0       System.Variants.System.Variants
+ 0001:00001C70       System.VarUtils.Finalization
+ 0001:00001C80       System.VarUtils.System.VarUtils
+ 0002:00000188       Winapi.ActiveX.$unwind$_ZN6Winapi7Activex12FinalizationEv
+ 0002:0000018C       Winapi.ActiveX.$unwind$_ZN6Winapi7Activex14initializationEv
+ 0003:00000058       Winapi.ActiveX..1
+ 0001:00001CB0       Winapi.ActiveX.Finalization
+ 0001:00001CC0       Winapi.ActiveX.Winapi.ActiveX
+ 0001:00001B10       Winapi.ImageHlp.Finalization
+ 0001:00001B20       Winapi.ImageHlp.Winapi.ImageHlp
+ 0002:00000180       Winapi.Messages.$unwind$_ZN6Winapi8Messages12FinalizationEv
+ 0002:00000184       Winapi.Messages.$unwind$_ZN6Winapi8Messages14initializationEv
+ 0003:00000054       Winapi.Messages..1
+ 0001:00001AD0       Winapi.Messages.Finalization
+ 0001:00001AE0       Winapi.Messages.Winapi.Messages
+ 0001:00001B50       Winapi.PsAPI.Finalization
+ 0001:00001B60       Winapi.PsAPI.Winapi.PsAPI
+ 0001:00001B30       Winapi.SHFolder.Finalization
+ 0001:00001B40       Winapi.SHFolder.Winapi.SHFolder
+ 0002:00000178       Winapi.Windows.$unwind$_ZN6Winapi7Windows12FinalizationEv
+ 0002:0000017C       Winapi.Windows.$unwind$_ZN6Winapi7Windows14initializationEv
+ 0003:00000050       Winapi.Windows..1
+ 0001:00001AB0       Winapi.Windows.Finalization
+ 0001:00001AC0       Winapi.Windows.Winapi.Windows
+ 0001:00001A90       Winapi.Windows.PkgHelper.Finalization
+ 0001:00001AA0       Winapi.Windows.PkgHelper.Winapi.Windows.PkgHelper
+
+

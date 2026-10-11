@@ -10,14 +10,12 @@
 //!
 //! ## How the values were chosen
 //!
-//! Every cap is grounded in **either** an empirical maximum measured by
-//! `examples/cap_audit.rs` against the sample corpus under
-//! `tests/samples/`, **or** an authoritative value cited from
-//! `reference/`. Headroom over the empirical max is generous (typically
-//! 4–10×) because the corpus is small and a future Delphi/FPC binary may
-//! legitimately exceed today's max. The audit run informing these
-//! constants was captured during Phase 4 of the cleanup work; re-run
-//! `cargo run --release --example cap_audit` to refresh.
+//! Every cap is grounded in **either** an empirical maximum measured
+//! against the sample corpus under `tests/samples/`, **or** an
+//! authoritative value cited from the compilers' runtime sources or a
+//! public Delphi analysis tool. Headroom over the empirical max is generous
+//! (typically 4-10×) because the corpus is small and a future Delphi/FPC
+//! binary may legitimately exceed today's max.
 //!
 //! ## When to tighten / loosen
 //!
@@ -37,7 +35,7 @@
 /// the length prefix is a `u8`). Empirical max in the current corpus is
 /// 128 bytes (`TEnumerator<System.Generics.Collections.TPair<System.
 /// Messaging.TMessageListener,System.Messaging.TMessageManager.
-/// TListenerData>>` in heidisql_x64, 2026-04 cap_audit run) - the cap
+/// TListenerData>>` in heidisql_x64, measured 2026-04) - the cap
 /// previously matched that exactly with **zero headroom**, which would
 /// silently reject the next deeper level of generic nesting. 255 is the
 /// largest value that can ever land in a `ShortString` body, so any
@@ -55,8 +53,7 @@ pub const MAX_IDENTIFIER_BYTES: usize = 255;
 
 /// Minimum number of pointer-sized slots between a Delphi VMT base and the
 /// `vmtSelfPtr` target. Sourced verbatim from ESET DelphiHelper's
-/// shape-test in
-/// `reference/DelphiHelper/DelphiHelper/core/DelphiClass.py:163-167`
+/// shape-test in `DelphiHelper/core/DelphiClass.py:163-167`
 /// (`offset / processorWordSize < 5` rejects the candidate). The header
 /// cannot be shorter than the 5-pointer minimum across the Delphi version
 /// range we target.
@@ -64,8 +61,8 @@ pub const DELPHI_MIN_HEADER_SLOTS: u64 = 5;
 
 /// Maximum number of pointer-sized header slots. Same source line range
 /// as [`DELPHI_MIN_HEADER_SLOTS`] (`offset / processorWordSize > 30`
-/// rejects the candidate). 30 slots covers Delphi 1 → Delphi 12 Athens
-/// with margin.
+/// rejects the candidate). 30 slots covers Delphi 1 - 13 with margin
+/// (Win64: 25, with the three C++ ABI slots).
 pub const DELPHI_MAX_HEADER_SLOTS: u64 = 30;
 
 /// Maximum plausible instance size, in bytes. Empirical max in corpus:
@@ -118,6 +115,15 @@ pub const MAX_INTERFACES_PER_CLASS_FPC: usize = 1024;
 /// Empirical max: 123 (`TWinControl` in heidisql_x64). 512 ≈ 4× headroom.
 pub const MAX_DYNAMIC_SLOTS_PER_CLASS: usize = 512;
 
+/// Maximum entries in an `automated` dispatch table (`vmtAutoTable`).
+/// `OleAuto.pas` declares the array as `[0..4095]`; real classes carry a
+/// handful.
+pub const MAX_AUTO_ENTRIES_PER_CLASS: usize = 4096;
+
+/// Maximum parameters an `automated` method's `TParamList` can describe
+/// (`ParamCount` is a byte).
+pub const MAX_AUTO_PARAMS: usize = 255;
+
 /// Maximum entries in the init-table managed-fields list (the synthetic
 /// `tkRecord` reachable through `vmtInitTable`). Empirical max: 32
 /// (`TFLACfile` in lightalloy / Delphi 7). 256 keeps headroom for classes
@@ -133,9 +139,12 @@ pub const MAX_INIT_MANAGED_FIELDS: usize = 256;
 /// real-world events are tiny. 32 caps misalignment rejection cheaply.
 pub const MAX_METHOD_PARAMS: usize = 32;
 
-/// Maximum range (`max - min`) of a `tkEnumeration`. Empirical max: 67
-/// (`TThemedScrollBar` in heidisql_xe5_unpacked). 512 ≈ 7.6× headroom.
-pub const MAX_ENUM_RANGE: i64 = 512;
+/// Maximum range (`max - min`) of a `tkEnumeration`: an enumeration with
+/// more than 256 values is stored as `otUWord`, so 65 536 values is the
+/// structural limit. Empirical max: 912 (Indy's `TIdCharSet`, in the RAD
+/// Studio 10 Seattle packages). Every name is still validated, so a bogus
+/// count fails at the first implausible name.
+pub const MAX_ENUM_RANGE: i64 = 65_535;
 
 /// Maximum entries in a `tkRecord` managed-fields list. Empirical max:
 /// 13 (`TFormatSettings` in heidisql_xe5_unpacked). 256 ≈ 20× headroom.
@@ -147,6 +156,10 @@ pub const MAX_RECORD_MANAGED_FIELDS: usize = 256;
 /// misparse of the version-sensitive extended layout while covering any real
 /// record.
 pub const MAX_RECORD_FIELDS: usize = 1024;
+
+/// Upper bound on the methods one record's extended RTTI lists
+/// (`RecMethCnt` is a `u16`; real records stay far below this).
+pub const MAX_METHODS_PER_RECORD: usize = 4096;
 
 // ---------------------------------------------------------------------------
 // FPC resources
@@ -186,3 +199,21 @@ pub const MAX_FORMS_RAW_SCAN: usize = 4096;
 /// max in the corpus is ~3 000 distinct types (HeidiSQL 12 x64); 65 536 leaves
 /// a >20× margin while still capping a runaway walk.
 pub const MAX_RTTI_TYPES: usize = 65_536;
+
+/// Maximum delay-load descriptors read from a PE's delay-import directory
+/// (one per DLL; a program delay-loads a handful).
+pub const MAX_DELAY_DESCRIPTORS: usize = 4096;
+
+/// Maximum delay-loaded imports read across all descriptors; bounds the
+/// list (and every `import_at` lookup over it) when a crafted directory
+/// points every descriptor at one long name table.
+pub const MAX_DELAY_IMPORTS: usize = 65_536;
+
+/// Maximum bytes of one attribute block (`TAttrData`) or of the extra data
+/// after an extended property: a block holds a few entries of a pointer
+/// pair and their argument bytes, far below this.
+pub const MAX_ATTR_DATA_BYTES: usize = 0x4000;
+
+/// Maximum class ancestors followed when looking a member up through the
+/// parents; real hierarchies are a few dozen deep at most.
+pub const MAX_ANCESTOR_DEPTH: usize = 64;

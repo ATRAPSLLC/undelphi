@@ -1,0 +1,20 @@
+{ Runtime-package fixture for the `undelphi` crate.
+
+  Builds gtpkg.bpl (a PE DLL with PACKAGEINFO, requires = [rtl]) and its
+  compile-time counterpart gtpkg.dcp. usepkg.dpr is then linked against it
+  so usepkg.exe imports TGTShared from the package instead of containing it.
+
+  Keep this source and tests/programs.rs in lockstep. }
+package gtpkg;
+
+{$DESCRIPTION 'undelphi runtime package fixture'}
+{$RUNONLY}
+{$IMPLICITBUILD OFF}
+
+requires
+  rtl;
+
+contains
+  gtshared in 'gtshared.pas';
+
+end.

@@ -17,13 +17,13 @@ and tested empirically:
   is emitted and decodes fine, but the bytes immediately after it are unrelated
   data (no `ExCount`/entries) - **no extended table follows**.
 
-Conclusion: extended method RTTI for FPC is a **3.3.x / trunk** feature (the
-cloned `reference/fpc-source` is trunk and has full support). No FPC ≤ 3.2.x
+Conclusion: extended method RTTI for FPC is a **3.3.x / trunk** feature (FPC
+trunk has full support). No FPC ≤ 3.2.x
 binary - including our entire FPC corpus - can carry `TVmtMethodExTable`, so a
 decoder has no real-world binary to act on and is **deferred** until a 3.3.x+
 sample is available. The realistic FPC method-signature win for current
 binaries is the `tkMethod` (method-pointer/event type) decoder, which FPC 3.2.2
-*does* emit and which is implemented and validated (`RESEARCH.md §14.18`).
+*does* emit and which is implemented and validated.
 
 The `.pas` and build steps below are kept for if/when FPC 3.3.x is used.
 

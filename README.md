@@ -83,7 +83,7 @@ The `decode_type_detail` dispatcher follows a property's or field's
 `PPTypeInfo` indirection and returns a `TypeDetail` enum so callers can
 match on Kind without pre-dispatching. Delphi and FPC byte values are
 both honoured (FPC reorders the `TTypeKind` enum - `tkClass` is `7` in
-Delphi, `15` in FPC; both verified against `reference/`).
+Delphi, `15` in FPC; both verified against the runtime sources).
 
 ### Extended RTTI (Delphi 2010+)
 
@@ -158,11 +158,80 @@ published-field table, init-table managed-field offsets, and declared
 or padding), and managed-only entries (ref-counted fields the class
 keeps private).
 
+### Runtime packages, imports and exports
+
+- **Imports** (`bin.imports()`, delay-loaded included) with each Borland
+  package symbol demangled: `@$xp$14System@Integer` is the typeinfo of
+  `System.Integer`, `@Classes@TPersistent@` the VMT of
+  `Classes.TPersistent`, and Win64's Itanium names (`_ZTVN6System7Classes11TPersistentE`)
+  read the same way, generic instances included.
+- `bin.import_at(va)` names the import behind a `PPTypeInfo`, `vmtParent`
+  or field-class cell that points out of the module, and
+  `bin.required_packages()` lists the `.bpl`s an executable needs (its
+  `PACKAGEINFO` does not).
+- **Exports** (`bin.exports()`) of a runtime package, the compiler's own
+  answer key for every class VMT, typeinfo and routine it defines.
+
+### Startup tables, resource strings, interface methods
+
+- **Unit initialization table** (`bin.unit_init_table()`): every unit's
+  `initialization` / `finalization` procedure in startup order, Delphi
+  2010+ class constructor / destructor pairs, and the 2010+ type table that
+  lists every RTTI type by declaring unit.
+- **Resource strings** (`bin.resource_strings()`): the `RT_STRING` table
+  joined with each `resourcestring`'s `TResStringRec`.
+- **Interface method RTTI** (`bin.interface_rtti(..)`): the methods of an
+  interface compiled with method info (`IInvokable`), with calling
+  conventions, parameters and result types.
+
+### Structure extents
+
+`bin.structure_extents()` gives the byte range of every structure the
+crate reads - VMT headers, virtual-method arrays, method / field /
+dynamic / interface / automation tables, interface vtables, RTTI records,
+string constants - so a disassembler can keep them out of the code it
+decodes.
+
+### Compiled units (`.dcu` / `.dcp`)
+
+The `dcu` module decodes the compiler's own record of a unit: every
+declaration of its interface and implementation, the layout of every type
+(records and classes with every field and offset, including private ones
+and types without RTTI), every routine with its parameters, result and
+calling convention, its uses lists and imports, and its code and RTTI with
+their fixups. The format follows Hmelnov's DCU32INT for Delphi 2 - 10.3,
+extended with the records Delphi 10.4 - 13 add; every unit of the Delphi 6,
+10 Seattle and 13 libraries decodes.
+
+- `dcu::Unit::parse` reads a `.dcu`, `dcu::package::Package::parse` the
+  units inside a `.dcp`, and `dcu::library::Library` opens a compiler's
+  library directory and resolves types across units.
+- `dcu::mangle::Mangler` generates a routine's export name (Borland on
+  Win32, Itanium on Win64), matching 98 - 99 % of a runtime package's
+  exports.
+- `bin.locate(&library)` places a program's DCU routines, typed constants
+  and variables in the linked binary and names the slots of its unit
+  initialization table.
+
+### IDR knowledge bases
+
+The `kb` module reads and writes the knowledge bases of IDR (the
+Interactive Delphi Reconstructor), which describe the units of a Delphi
+release's library: constants, types with their fields, properties and
+methods, variables, resource strings, and every routine with its prototype
+and its code, relocated bytes masked, so it can be recognised in a binary
+(`Dump::matches`). `KnowledgeBase::parse` reads a file without copying and
+looks records up by name or unit; `Contents::to_bytes` writes one, and
+every published file (Delphi 2 - XE6 Win32, XE2 - XE6 Win64) reads and
+writes back unchanged. `kb::build` makes a knowledge base from a release's
+DCUs the way IDR's own were made: built from the Delphi 6 library, its
+records match kb6's wherever the input units are the same.
+
 ## Supported targets
 
 | Toolchain | Versions | Containers |
 | --- | --- | --- |
-| Embarcadero / Borland Delphi | Delphi 2 → Delphi 12 Athens (`dcc` v9 → v36) | PE32 / PE32+, Mach-O, ELF |
+| Embarcadero / Borland Delphi | Delphi 2 → Delphi 13 Florence (`dcc` v9 → v37) | PE32 / PE32+, Mach-O, ELF |
 | Embarcadero C++Builder | parsed identically to Delphi (same VCL/FMX RTTI) | PE32 / PE32+ |
 | Free Pascal / Lazarus | FPC 1.0 → FPC 3.2+ (incl. trunk-shaped 3.3) | PE32 / PE32+, Mach-O, ELF |
 | Arch | x86, x86_64, ARM, AArch64 | (per the build-string and / or container header) |
@@ -184,6 +253,23 @@ contemporary laptop.
   ```sh
   cargo run --release --example dump -- path/to/binary.exe
   ```
+
+- [`examples/dcu_dump.rs`](examples/dcu_dump.rs) - a decoded unit's
+  header, uses, type table and declarations.
+- [`examples/dcu_check.rs`](examples/dcu_check.rs) - decodes every `.dcu`
+  and `.dcp` under a directory and reports the failures.
+- [`examples/dcu_facts.rs`](examples/dcu_facts.rs) - a unit's types,
+  fields and routines in a line format comparable with DCU32INT's.
+- [`examples/mangle_check.rs`](examples/mangle_check.rs) - generated
+  export names checked against a set of runtime packages.
+- [`examples/verify_exports.rs`](examples/verify_exports.rs) -
+  `classes()` and `types()` checked against runtime packages' exports.
+- [`examples/kb_dump.rs`](examples/kb_dump.rs) - an IDR knowledge
+  base's units, or every record of a given name.
+- [`examples/kb_build.rs`](examples/kb_build.rs) - an IDR knowledge base
+  built from a directory of DCUs.
+- [`examples/kb_diff.rs`](examples/kb_diff.rs) - two knowledge bases
+  compared record by record.
 
 ## License
 

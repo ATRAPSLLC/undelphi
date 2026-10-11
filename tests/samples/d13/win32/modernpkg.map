@@ -1,0 +1,463 @@
+
+ Start         Length     Name                   Class
+ 0001:00401000 00006E48H .text                   CODE
+ 0002:00408000 00000184H .itext                  ICODE
+ 0003:00409000 00000090H .data                   DATA
+ 0004:0040A000 00000038H .bss                    BSS
+ 0005:00000000 00000000H .tls                    TLS
+ 0006:00400000 00000000H .pdata                  PDATA
+
+
+Detailed map of segments
+
+ 0001:00000000 00000158 C=CODE     S=.text    G=(none)   M=System   ACBP=A9
+ 0001:00000158 00000CF0 C=CODE     S=.text    G=(none)   M=SysInit  ACBP=A9
+ 0001:00000E48 00000008 C=CODE     S=.text    G=(none)   M=System.UITypes ACBP=A9
+ 0001:00000E50 00000008 C=CODE     S=.text    G=(none)   M=Winapi.Windows.PkgHelper ACBP=A9
+ 0001:00000E58 00000008 C=CODE     S=.text    G=(none)   M=Winapi.PsAPI ACBP=A9
+ 0001:00000E60 00000008 C=CODE     S=.text    G=(none)   M=System.Character ACBP=A9
+ 0001:00000E68 00000008 C=CODE     S=.text    G=(none)   M=System.Internal.ExcUtils ACBP=A9
+ 0001:00000E70 00000038 C=CODE     S=.text    G=(none)   M=System.SysUtils ACBP=A9
+ 0001:00000EA8 00000008 C=CODE     S=.text    G=(none)   M=System.VarUtils ACBP=A9
+ 0001:00000EB0 00000008 C=CODE     S=.text    G=(none)   M=System.Variants ACBP=A9
+ 0001:00000EB8 00000008 C=CODE     S=.text    G=(none)   M=System.TypInfo ACBP=A9
+ 0001:00000EC0 00000008 C=CODE     S=.text    G=(none)   M=System.Math ACBP=A9
+ 0001:00000EC8 00000008 C=CODE     S=.text    G=(none)   M=System.TimeSpan ACBP=A9
+ 0001:00000ED0 00000008 C=CODE     S=.text    G=(none)   M=System.SyncObjs ACBP=A9
+ 0001:00000ED8 00000010 C=CODE     S=.text    G=(none)   M=System.Rtti ACBP=A9
+ 0001:00000EE8 00000040 C=CODE     S=.text    G=(none)   M=System.Classes ACBP=A9
+ 0001:00000F28 00000030 C=CODE     S=.text    G=(none)   M=System.Generics.Defaults ACBP=A9
+ 0001:00000F58 00000148 C=CODE     S=.text    G=(none)   M=System.Generics.Collections ACBP=A9
+ 0001:000010A0 00005B08 C=CODE     S=.text    G=(none)   M=modern   ACBP=A9
+ 0001:00006BA8 000002A0 C=CODE     S=.text    G=(none)   M=.modernpkg ACBP=A9
+ 0002:00000000 00000008 C=ICODE    S=.itext   G=(none)   M=System   ACBP=A9
+ 0002:00000008 00000008 C=ICODE    S=.itext   G=(none)   M=SysInit  ACBP=A9
+ 0002:00000010 00000008 C=ICODE    S=.itext   G=(none)   M=System.UITypes ACBP=A9
+ 0002:00000018 00000008 C=ICODE    S=.itext   G=(none)   M=Winapi.Windows.PkgHelper ACBP=A9
+ 0002:00000020 00000008 C=ICODE    S=.itext   G=(none)   M=Winapi.PsAPI ACBP=A9
+ 0002:00000028 00000008 C=ICODE    S=.itext   G=(none)   M=System.Character ACBP=A9
+ 0002:00000030 00000008 C=ICODE    S=.itext   G=(none)   M=System.Internal.ExcUtils ACBP=A9
+ 0002:00000038 00000028 C=ICODE    S=.itext   G=(none)   M=System.SysUtils ACBP=A9
+ 0002:00000060 00000008 C=ICODE    S=.itext   G=(none)   M=System.VarUtils ACBP=A9
+ 0002:00000068 00000008 C=ICODE    S=.itext   G=(none)   M=System.Variants ACBP=A9
+ 0002:00000070 00000008 C=ICODE    S=.itext   G=(none)   M=System.TypInfo ACBP=A9
+ 0002:00000078 00000008 C=ICODE    S=.itext   G=(none)   M=System.Math ACBP=A9
+ 0002:00000080 00000008 C=ICODE    S=.itext   G=(none)   M=System.TimeSpan ACBP=A9
+ 0002:00000088 00000008 C=ICODE    S=.itext   G=(none)   M=System.SyncObjs ACBP=A9
+ 0002:00000090 00000010 C=ICODE    S=.itext   G=(none)   M=System.Rtti ACBP=A9
+ 0002:000000A0 00000040 C=ICODE    S=.itext   G=(none)   M=System.Classes ACBP=A9
+ 0002:000000E0 00000018 C=ICODE    S=.itext   G=(none)   M=System.Generics.Defaults ACBP=A9
+ 0002:000000F8 00000084 C=ICODE    S=.itext   G=(none)   M=modern   ACBP=A9
+ 0002:0000017C 00000008 C=ICODE    S=.itext   G=(none)   M=.modernpkg ACBP=A9
+ 0003:00000000 00000088 C=DATA     S=.data    G=DGROUP   M=SysInit  ACBP=A9
+ 0004:00000000 00000024 C=BSS      S=.bss     G=DGROUP   M=SysInit  ACBP=A9
+ 0004:00000024 00000014 C=BSS      S=.bss     G=DGROUP   M=modern   ACBP=A9
+
+
+  Address             Publics by Name
+
+ 0002:0000017C       .modernpkg..modernpkg
+ 0001:00006E28       .modernpkg.@GetPackageInfoTable
+ 0001:00006E30       .modernpkg.@PackageLoad
+ 0001:00006E3C       .modernpkg.@PackageUnload
+ 0004:00000030       modern..2
+ 0001:000042E0       modern..MakeCallback$ActRec
+ 0001:0000116C       modern..TShapes
+ 0001:00006688       modern..{System.Generics.Collections}@TList`1.Pack[0]$ActRec<modern.TPoint3>
+ 0001:00006A14       modern..{System.Generics.Collections}@TList`1.Pack[0]$ActRec<System.Integer>
+ 0001:000064CC       modern..{System.Generics.Collections}@TList`1.Pack[1]$ActRec<modern.TPoint3>
+ 0001:00006858       modern..{System.Generics.Collections}@TList`1.Pack[1]$ActRec<System.Integer>
+ 0001:000014E4       modern..{System.Generics.Collections}TEnumerable<modern.TPoint3>
+ 0001:00002B9C       modern..{System.Generics.Collections}TEnumerable<System.Integer>
+ 0001:000013B8       modern..{System.Generics.Collections}TEnumerator<modern.TPoint3>
+ 0001:00002A70       modern..{System.Generics.Collections}TEnumerator<System.Integer>
+ 0001:00001A64       modern..{System.Generics.Collections}TList<modern.TPoint3>
+ 0001:000018C4       modern..{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator
+ 0001:0000311C       modern..{System.Generics.Collections}TList<System.Integer>
+ 0001:00002F7C       modern..{System.Generics.Collections}TList<System.Integer>.TEnumerator
+ 0001:000041D8       modern.AddCounts
+ 0001:000043FC       modern.AnExceptionallyLongRoutineNameThatPushesTheMangledExportNameOverTheLimit
+ 0004:00000034       modern.Box
+ 0001:00004400       modern.Finalization
+ 0004:00000028       modern.GBytes
+ 0004:00000024       modern.GCount
+ 0004:0000002C       modern.GPoints
+ 0001:000041E0       modern.Length3
+ 0001:00004214       modern.Length3Std
+ 0001:00004390       modern.MakeCallback
+ 0001:00004388       modern.MakeCallback$ActRec.$0$Body
+ 0002:000000F8       modern.modern
+ 0001:00004230       modern.TakeBytes
+ 0001:00005CEC       modern.TArray.BinarySearch<modern.TPoint3>
+ 0001:00005E28       modern.TArray.BinarySearch<System.Integer>
+ 0001:000060F0       modern.TArray.DoBinarySearch<modern.TPoint3>
+ 0001:000062E8       modern.TArray.DoBinarySearch<System.Integer>
+ 0001:00005F58       modern.TArray.QuickSort<modern.TPoint3>
+ 0001:000061AC       modern.TArray.QuickSort<System.Integer>
+ 0001:00005C88       modern.TArray.Sort<modern.TPoint3>
+ 0001:00005DC4       modern.TArray.Sort<System.Integer>
+ 0001:00005C14       modern.TShapes.Convert<System.Integer>
+ 0001:00004154       modern.TShapes.Count
+ 0001:000040E4       modern.TShapes.Create
+ 0001:00004128       modern.TShapes.Destroy
+ 0001:0000415C       modern.TShapes.Each
+ 0001:000048CC       modern.{modern}TBox<System.Integer>.Get
+ 0001:00006B54       modern.{System.Generics.Collections}@TList`1.Pack[0]$ActRec<modern.TPoint3>.$0$Body
+ 0001:00006B98       modern.{System.Generics.Collections}@TList`1.Pack[0]$ActRec<System.Integer>.$0$Body
+ 0001:00006B24       modern.{System.Generics.Collections}@TList`1.Pack[1]$ActRec<modern.TPoint3>.$0$Body
+ 0001:00006B78       modern.{System.Generics.Collections}@TList`1.Pack[1]$ActRec<System.Integer>.$0$Body
+ 0001:00004444       modern.{System.Generics.Collections}TEnumerable<modern.TPoint3>.Destroy
+ 0001:000048D8       modern.{System.Generics.Collections}TEnumerable<modern.TPoint3>.GetEnumerator
+ 0001:00004468       modern.{System.Generics.Collections}TEnumerable<modern.TPoint3>.ToArray
+ 0001:0000469C       modern.{System.Generics.Collections}TEnumerable<System.Integer>.Destroy
+ 0001:000052BC       modern.{System.Generics.Collections}TEnumerable<System.Integer>.GetEnumerator
+ 0001:000046C0       modern.{System.Generics.Collections}TEnumerable<System.Integer>.ToArray
+ 0001:00005E84       modern.{System.Generics.Collections}TEnumerable<System.Integer>.ToArrayImpl
+ 0001:000048D0       modern.{System.Generics.Collections}TEnumerator<modern.TPoint3>.MoveNext
+ 0001:000052B4       modern.{System.Generics.Collections}TEnumerator<System.Integer>.MoveNext
+ 0001:00004B3C       modern.{System.Generics.Collections}TList<modern.TPoint3>.Add
+ 0001:00004B64       modern.{System.Generics.Collections}TList<modern.TPoint3>.AddRange
+ 0001:00004B50       modern.{System.Generics.Collections}TList<modern.TPoint3>.AddRange
+ 0001:00004B70       modern.{System.Generics.Collections}TList<modern.TPoint3>.AddRange
+ 0001:0000519C       modern.{System.Generics.Collections}TList<modern.TPoint3>.BinarySearch
+ 0001:00005160       modern.{System.Generics.Collections}TList<modern.TPoint3>.BinarySearch
+ 0001:00005128       modern.{System.Generics.Collections}TList<modern.TPoint3>.BinarySearch
+ 0001:00004FE8       modern.{System.Generics.Collections}TList<modern.TPoint3>.Clear
+ 0001:00005018       modern.{System.Generics.Collections}TList<modern.TPoint3>.Contains
+ 0001:00004A74       modern.{System.Generics.Collections}TList<modern.TPoint3>.Create
+ 0001:00004A30       modern.{System.Generics.Collections}TList<modern.TPoint3>.Create
+ 0001:00004960       modern.{System.Generics.Collections}TList<modern.TPoint3>.Create
+ 0001:00004998       modern.{System.Generics.Collections}TList<modern.TPoint3>.Create
+ 0001:000049EC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Create
+ 0001:00004EAC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Delete
+ 0001:00004EB8       modern.{System.Generics.Collections}TList<modern.TPoint3>.DeleteRange
+ 0001:000045D4       modern.{System.Generics.Collections}TList<modern.TPoint3>.Destroy
+ 0001:000045A4       modern.{System.Generics.Collections}TList<modern.TPoint3>.DoGetEnumerator
+ 0001:00004AC4       modern.{System.Generics.Collections}TList<modern.TPoint3>.Error
+ 0001:00004614       modern.{System.Generics.Collections}TList<modern.TPoint3>.Error
+ 0001:00004F74       modern.{System.Generics.Collections}TList<modern.TPoint3>.Exchange
+ 0001:00004FF4       modern.{System.Generics.Collections}TList<modern.TPoint3>.Expand
+ 0001:00004EFC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Extract
+ 0001:00004F34       modern.{System.Generics.Collections}TList<modern.TPoint3>.ExtractAt
+ 0001:00004EC4       modern.{System.Generics.Collections}TList<modern.TPoint3>.ExtractItem
+ 0001:00004F8C       modern.{System.Generics.Collections}TList<modern.TPoint3>.First
+ 0001:00005238       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetCapacity
+ 0001:000051E4       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetEnumerator
+ 0001:00005274       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetIsEmpty
+ 0001:000051F4       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetItem
+ 0001:0000527C       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetList
+ 0001:00005298       modern.{System.Generics.Collections}TList<modern.TPoint3>.GetPList
+ 0001:0000503C       modern.{System.Generics.Collections}TList<modern.TPoint3>.IndexOf
+ 0001:0000505C       modern.{System.Generics.Collections}TList<modern.TPoint3>.IndexOfItem
+ 0001:00004B7C       modern.{System.Generics.Collections}TList<modern.TPoint3>.Insert
+ 0001:00004BC8       modern.{System.Generics.Collections}TList<modern.TPoint3>.InsertRange
+ 0001:00004C7C       modern.{System.Generics.Collections}TList<modern.TPoint3>.InsertRange
+ 0001:00004B90       modern.{System.Generics.Collections}TList<modern.TPoint3>.InsertRange
+ 0001:00004BAC       modern.{System.Generics.Collections}TList<modern.TPoint3>.InsertRange
+ 0001:00005F4C       modern.{System.Generics.Collections}TList<modern.TPoint3>.InternalCompare
+ 0001:00005F20       modern.{System.Generics.Collections}TList<modern.TPoint3>.InternalNotify
+ 0001:00004FB8       modern.{System.Generics.Collections}TList<modern.TPoint3>.Last
+ 0001:0000508C       modern.{System.Generics.Collections}TList<modern.TPoint3>.LastIndexOf
+ 0001:00004F80       modern.{System.Generics.Collections}TList<modern.TPoint3>.Move
+ 0001:000045B4       modern.{System.Generics.Collections}TList<modern.TPoint3>.Notify
+ 0001:00004DCC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Pack
+ 0001:00004D40       modern.{System.Generics.Collections}TList<modern.TPoint3>.Pack
+ 0001:00004E5C       modern.{System.Generics.Collections}TList<modern.TPoint3>.Remove
+ 0001:00004E7C       modern.{System.Generics.Collections}TList<modern.TPoint3>.RemoveItem
+ 0001:000050AC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Reverse
+ 0001:00005244       modern.{System.Generics.Collections}TList<modern.TPoint3>.SetCapacity
+ 0001:00005268       modern.{System.Generics.Collections}TList<modern.TPoint3>.SetCount
+ 0001:00005224       modern.{System.Generics.Collections}TList<modern.TPoint3>.SetItem
+ 0001:0000529C       modern.{System.Generics.Collections}TList<modern.TPoint3>.SetOnNotify
+ 0001:000050B8       modern.{System.Generics.Collections}TList<modern.TPoint3>.Sort
+ 0001:000050FC       modern.{System.Generics.Collections}TList<modern.TPoint3>.Sort
+ 0001:000050D8       modern.{System.Generics.Collections}TList<modern.TPoint3>.Sort
+ 0001:000048E0       modern.{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator.Create
+ 0001:00004660       modern.{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator.DoGetCurrent
+ 0001:00004680       modern.{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator.DoMoveNext
+ 0001:00004940       modern.{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator.GetCurrent
+ 0001:00004924       modern.{System.Generics.Collections}TList<modern.TPoint3>.TEnumerator.MoveNext
+ 0001:0000464C       modern.{System.Generics.Collections}TList<modern.TPoint3>.ToArray
+ 0001:000051D8       modern.{System.Generics.Collections}TList<modern.TPoint3>.TrimExcess
+ 0001:00005C58       modern.{System.Generics.Collections}TList<modern.TPoint3>.UpdateComparer
+ 0001:00005C18       modern.{System.Generics.Collections}TList<modern.TPoint3>.UpdateNotify
+ 0001:00005510       modern.{System.Generics.Collections}TList<System.Integer>.Add
+ 0001:00005540       modern.{System.Generics.Collections}TList<System.Integer>.AddRange
+ 0001:00005520       modern.{System.Generics.Collections}TList<System.Integer>.AddRange
+ 0001:00005534       modern.{System.Generics.Collections}TList<System.Integer>.AddRange
+ 0001:00005AD8       modern.{System.Generics.Collections}TList<System.Integer>.BinarySearch
+ 0001:00005AA8       modern.{System.Generics.Collections}TList<System.Integer>.BinarySearch
+ 0001:00005B0C       modern.{System.Generics.Collections}TList<System.Integer>.BinarySearch
+ 0001:00005974       modern.{System.Generics.Collections}TList<System.Integer>.Clear
+ 0001:000059A4       modern.{System.Generics.Collections}TList<System.Integer>.Contains
+ 0001:000053C0       modern.{System.Generics.Collections}TList<System.Integer>.Create
+ 0001:0000536C       modern.{System.Generics.Collections}TList<System.Integer>.Create
+ 0001:00005334       modern.{System.Generics.Collections}TList<System.Integer>.Create
+ 0001:00005404       modern.{System.Generics.Collections}TList<System.Integer>.Create
+ 0001:00005448       modern.{System.Generics.Collections}TList<System.Integer>.Create
+ 0001:0000586C       modern.{System.Generics.Collections}TList<System.Integer>.Delete
+ 0001:00005878       modern.{System.Generics.Collections}TList<System.Integer>.DeleteRange
+ 0001:00004814       modern.{System.Generics.Collections}TList<System.Integer>.Destroy
+ 0001:000047EC       modern.{System.Generics.Collections}TList<System.Integer>.DoGetEnumerator
+ 0001:00005498       modern.{System.Generics.Collections}TList<System.Integer>.Error
+ 0001:00004854       modern.{System.Generics.Collections}TList<System.Integer>.Error
+ 0001:00005918       modern.{System.Generics.Collections}TList<System.Integer>.Exchange
+ 0001:00005980       modern.{System.Generics.Collections}TList<System.Integer>.Expand
+ 0001:000058C0       modern.{System.Generics.Collections}TList<System.Integer>.Extract
+ 0001:000058E4       modern.{System.Generics.Collections}TList<System.Integer>.ExtractAt
+ 0001:00005884       modern.{System.Generics.Collections}TList<System.Integer>.ExtractItem
+ 0001:00005930       modern.{System.Generics.Collections}TList<System.Integer>.First
+ 0001:00005B98       modern.{System.Generics.Collections}TList<System.Integer>.GetCapacity
+ 0001:00005B50       modern.{System.Generics.Collections}TList<System.Integer>.GetEnumerator
+ 0001:00005BD4       modern.{System.Generics.Collections}TList<System.Integer>.GetIsEmpty
+ 0001:00005B60       modern.{System.Generics.Collections}TList<System.Integer>.GetItem
+ 0001:00005BDC       modern.{System.Generics.Collections}TList<System.Integer>.GetList
+ 0001:00005BF8       modern.{System.Generics.Collections}TList<System.Integer>.GetPList
+ 0001:000059C4       modern.{System.Generics.Collections}TList<System.Integer>.IndexOf
+ 0001:000059E0       modern.{System.Generics.Collections}TList<System.Integer>.IndexOfItem
+ 0001:0000554C       modern.{System.Generics.Collections}TList<System.Integer>.Insert
+ 0001:0000555C       modern.{System.Generics.Collections}TList<System.Integer>.InsertRange
+ 0001:00005644       modern.{System.Generics.Collections}TList<System.Integer>.InsertRange
+ 0001:00005578       modern.{System.Generics.Collections}TList<System.Integer>.InsertRange
+ 0001:00005594       modern.{System.Generics.Collections}TList<System.Integer>.InsertRange
+ 0001:0000619C       modern.{System.Generics.Collections}TList<System.Integer>.InternalCompare
+ 0001:0000617C       modern.{System.Generics.Collections}TList<System.Integer>.InternalNotify
+ 0001:00005950       modern.{System.Generics.Collections}TList<System.Integer>.Last
+ 0001:00005A10       modern.{System.Generics.Collections}TList<System.Integer>.LastIndexOf
+ 0001:00005924       modern.{System.Generics.Collections}TList<System.Integer>.Move
+ 0001:000047FC       modern.{System.Generics.Collections}TList<System.Integer>.Notify
+ 0001:00005704       modern.{System.Generics.Collections}TList<System.Integer>.Pack
+ 0001:00005790       modern.{System.Generics.Collections}TList<System.Integer>.Pack
+ 0001:00005820       modern.{System.Generics.Collections}TList<System.Integer>.Remove
+ 0001:0000583C       modern.{System.Generics.Collections}TList<System.Integer>.RemoveItem
+ 0001:00005A2C       modern.{System.Generics.Collections}TList<System.Integer>.Reverse
+ 0001:00005BA4       modern.{System.Generics.Collections}TList<System.Integer>.SetCapacity
+ 0001:00005BC8       modern.{System.Generics.Collections}TList<System.Integer>.SetCount
+ 0001:00005B84       modern.{System.Generics.Collections}TList<System.Integer>.SetItem
+ 0001:00005BFC       modern.{System.Generics.Collections}TList<System.Integer>.SetOnNotify
+ 0001:00005A7C       modern.{System.Generics.Collections}TList<System.Integer>.Sort
+ 0001:00005A58       modern.{System.Generics.Collections}TList<System.Integer>.Sort
+ 0001:00005A38       modern.{System.Generics.Collections}TList<System.Integer>.Sort
+ 0001:000052C4       modern.{System.Generics.Collections}TList<System.Integer>.TEnumerator.Create
+ 0001:000048A0       modern.{System.Generics.Collections}TList<System.Integer>.TEnumerator.DoGetCurrent
+ 0001:000048B0       modern.{System.Generics.Collections}TList<System.Integer>.TEnumerator.DoMoveNext
+ 0001:00005324       modern.{System.Generics.Collections}TList<System.Integer>.TEnumerator.GetCurrent
+ 0001:00005308       modern.{System.Generics.Collections}TList<System.Integer>.TEnumerator.MoveNext
+ 0001:0000488C       modern.{System.Generics.Collections}TList<System.Integer>.ToArray
+ 0001:00005B44       modern.{System.Generics.Collections}TList<System.Integer>.TrimExcess
+ 0001:00005D88       modern.{System.Generics.Collections}TList<System.Integer>.UpdateComparer
+ 0001:00005D48       modern.{System.Generics.Collections}TList<System.Integer>.UpdateNotify
+ 0001:000063D4       modern.{System.Generics.Defaults}TComparer<modern.TPoint3>.EQOperCompare
+ 0001:00006370       modern.{System.Generics.Defaults}TComparer<modern.TPoint3>.TryUseRecEqualityOperator
+ 0001:00005F28       modern.{System.Generics.Defaults}TComparer<modern.TPoint3>._Default
+ 0001:00006188       modern.{System.Generics.Defaults}TComparer<System.Integer>._Default
+ 0001:00000D50       SysInit...
+ 0001:00000D30       SysInit...
+ 0001:00000E28       SysInit...
+ 0001:00000E18       SysInit...
+ 0001:00000D60       SysInit...
+ 0001:00000DF4       SysInit...
+ 0001:00000D70       SysInit...
+ 0001:00000DCC       SysInit...
+ 0001:00000D84       SysInit...
+ 0001:00000DB4       SysInit...
+ 0001:00000D40       SysInit...
+ 0003:00000034       SysInit...
+ 0001:00000D20       SysInit...
+ 0004:00000018       SysInit..1
+ 0001:000007EC       SysInit.@InitPkg
+ 0001:00000858       SysInit.@PackageLoad
+ 0001:00000864       SysInit.@PackageUnload
+ 0001:000002CC       SysInit.@_dbkDummyProc
+ 0001:000002D0       SysInit.@_dbkFCallArgs
+ 0001:000006C0       SysInit.@_dbk_fcall_wrapper
+ 0001:00000870       SysInit.@_delayLoadHelper2
+ 0001:00000B50       SysInit.@_FUnloadDelayLoadedDLL2
+ 0001:00000C60       SysInit.@_HrLoadAllImportsForDll
+ 0004:00000014       SysInit.@_pfnDliFailureHook2
+ 0004:00000010       SysInit.@_pfnDliNotifyHook2
+ 0001:000001C0       SysInit.AllocTlsBuffer
+ 0004:0000000C       SysInit.dbkFCallWrapperAddr
+ 0001:00000278       SysInit.ExitProcessTLS
+ 0001:00000240       SysInit.ExitThreadTLS
+ 0001:00000E38       SysInit.Finalization
+ 0001:00000168       SysInit.FreeLibrary
+ 0001:000001A0       SysInit.GetLastError
+ 0001:000001B8       SysInit.GetProcAddress
+ 0001:000001CC       SysInit.GetTlsSize
+ 0004:00000004       SysInit.HInstance
+ 0001:0000029C       SysInit.InitializeModule
+ 0001:00000214       SysInit.InitProcessTLS
+ 0001:000001D4       SysInit.InitThreadTLS
+ 0001:00000158       SysInit.InterlockedExchange
+ 0001:000001A8       SysInit.LoadLibraryA
+ 0001:00000170       SysInit.LocalAlloc
+ 0001:00000178       SysInit.LocalFree
+ 0003:00000008       SysInit.Module
+ 0004:00000000       SysInit.ModuleIsLib
+ 0004:00000001       SysInit.ModuleIsPackage
+ 0003:00000004       SysInit.PtrToNil
+ 0001:000001B0       SysInit.RaiseException
+ 0001:00000D18       SysInit.ShutdownDelayHelp2
+ 0002:00000008       SysInit.SysInit
+ 0001:00000180       SysInit.TlsAlloc
+ 0004:0000001C       SysInit.tlsBuffer
+ 0001:00000188       SysInit.TlsFree
+ 0001:00000190       SysInit.TlsGetValue
+ 0003:00000000       SysInit.TlsIndex
+ 0005:00000000       SysInit.TlsLast
+ 0003:00000024       SysInit.TlsProc
+ 0001:00000198       SysInit.TlsSetValue
+ 0001:000002A8       SysInit.UninitializeModule
+ 0004:00000020       SysInit.UseTlsAPI
+ 0004:FFFF6000       SysInit.__ImageBase
+ 0001:00000008       System.@AbstractError
+ 0001:00000090       System.@AfterConstruction
+ 0001:00000098       System.@BeforeDestruction
+ 0001:00000080       System.@ClassCreate
+ 0001:00000088       System.@ClassDestroy
+ 0001:000000B8       System.@DoneExcept
+ 0001:000000F0       System.@DynArrayAsg
+ 0001:000000E8       System.@DynArrayClear
+ 0001:000000E0       System.@DynArraySetLength
+ 0001:000000A0       System.@HandleAnyException
+ 0001:000000A8       System.@HandleFinally
+ 0001:00000108       System.@IntfClear
+ 0001:00000110       System.@IntfCopy
+ 0001:00000048       System.@IsClass
+ 0001:000000C0       System.@PackageLoad
+ 0001:000000C8       System.@PackageUnload
+ 0001:000000B0       System.@RaiseExcept
+ 0001:000000D0       System.@RunError
+ 0001:000000D8       System.@UStrClr
+ 0001:00000150       System.Finalization
+ 0001:00000148       System.LoadResString
+ 0001:000000F8       System.RegisterModule
+ 0001:00000000       System.Sqrt
+ 0002:00000000       System.System
+ 0001:00000118       System.TInterfacedObject.AfterConstruction
+ 0001:00000120       System.TInterfacedObject.BeforeDestruction
+ 0001:00000128       System.TInterfacedObject.NewInstance
+ 0001:00000130       System.TInterfacedObject.QueryInterface
+ 0001:00000138       System.TInterfacedObject._AddRef
+ 0001:00000140       System.TInterfacedObject._Release
+ 0001:00000068       System.TObject.AfterConstruction
+ 0001:00000070       System.TObject.BeforeDestruction
+ 0001:00000020       System.TObject.Create
+ 0001:00000060       System.TObject.DefaultHandler
+ 0001:00000028       System.TObject.Destroy
+ 0001:00000078       System.TObject.Dispatch
+ 0001:00000038       System.TObject.Equals
+ 0001:00000030       System.TObject.Free
+ 0001:00000018       System.TObject.FreeInstance
+ 0001:00000040       System.TObject.GetHashCode
+ 0001:00000010       System.TObject.NewInstance
+ 0001:00000050       System.TObject.SafeCallException
+ 0001:00000058       System.TObject.ToString
+ 0001:00000100       System.UnregisterModule
+ 0001:00000E60       System.Character.Finalization
+ 0002:00000028       System.Character.System.Character
+ 0001:00000F20       System.Classes.Finalization
+ 0002:000000D8       System.Classes.System.Classes
+ 0002:000000D0       System.Classes.TBaseAsyncResult.Create@
+ 0001:00000F18       System.Classes.TBaseAsyncResult.Destroy@
+ 0002:000000A8       System.Classes.TBinaryWriter.Create@
+ 0001:00000F00       System.Classes.TBinaryWriter.Destroy@
+ 0002:000000C0       System.Classes.TComponent.Create@
+ 0001:00000EE8       System.Classes.TComponent.Destroy@
+ 0002:000000B0       System.Classes.TFieldsCache.Create@
+ 0001:00000EF0       System.Classes.TFieldsCache.Destroy@
+ 0002:000000C8       System.Classes.TLoginCredentialService.Create@
+ 0001:00000F08       System.Classes.TLoginCredentialService.Destroy@
+ 0002:000000A0       System.Classes.TObserverMapping.Create@
+ 0001:00000F10       System.Classes.TObserverMapping.Destroy@
+ 0002:000000B8       System.Classes.TThread.Create@
+ 0001:00000EF8       System.Classes.TThread.Destroy@
+ 0001:00000F60       System.Generics.Collections.ErrorArgumentOutOfRange
+ 0001:00000F58       System.Generics.Collections.ErrorArgumentOutOfRange
+ 0001:00000F90       System.Generics.Collections.TListHelper.DoExtractItemFwd4
+ 0001:00000FA0       System.Generics.Collections.TListHelper.DoExtractItemFwdN
+ 0001:00000F98       System.Generics.Collections.TListHelper.DoExtractItemRev4
+ 0001:00000FA8       System.Generics.Collections.TListHelper.DoExtractItemRevN
+ 0001:00000FB0       System.Generics.Collections.TListHelper.DoIndexOfFwd4
+ 0001:00000FB8       System.Generics.Collections.TListHelper.DoIndexOfFwdN
+ 0001:00000FC0       System.Generics.Collections.TListHelper.DoIndexOfRev4
+ 0001:00000FC8       System.Generics.Collections.TListHelper.DoIndexOfRevN
+ 0001:00000FD0       System.Generics.Collections.TListHelper.DoRemoveFwd4
+ 0001:00000FD8       System.Generics.Collections.TListHelper.DoRemoveFwdN
+ 0001:00000FE0       System.Generics.Collections.TListHelper.DoRemoveRev4
+ 0001:00000FE8       System.Generics.Collections.TListHelper.DoRemoveRevN
+ 0001:00000FF0       System.Generics.Collections.TListHelper.InternalAdd4
+ 0001:00001008       System.Generics.Collections.TListHelper.InternalAddN
+ 0001:00000FF8       System.Generics.Collections.TListHelper.InternalClear4
+ 0001:00001000       System.Generics.Collections.TListHelper.InternalClearN
+ 0001:00001010       System.Generics.Collections.TListHelper.InternalDeleteRange4
+ 0001:00001018       System.Generics.Collections.TListHelper.InternalDeleteRangeN
+ 0001:00001020       System.Generics.Collections.TListHelper.InternalDoDelete4
+ 0001:00001028       System.Generics.Collections.TListHelper.InternalDoDeleteN
+ 0001:00000F80       System.Generics.Collections.TListHelper.InternalExchange4
+ 0001:00000F88       System.Generics.Collections.TListHelper.InternalExchangeN
+ 0001:00000F68       System.Generics.Collections.TListHelper.InternalGrowCheck
+ 0001:00001030       System.Generics.Collections.TListHelper.InternalInsert4
+ 0001:00001038       System.Generics.Collections.TListHelper.InternalInsertN
+ 0001:00001040       System.Generics.Collections.TListHelper.InternalInsertRange4
+ 0001:00001048       System.Generics.Collections.TListHelper.InternalInsertRangeN
+ 0001:00001050       System.Generics.Collections.TListHelper.InternalMove4
+ 0001:00001058       System.Generics.Collections.TListHelper.InternalMoveN
+ 0001:00001060       System.Generics.Collections.TListHelper.InternalPack4
+ 0001:00001068       System.Generics.Collections.TListHelper.InternalPackN
+ 0001:00001070       System.Generics.Collections.TListHelper.InternalReverse4
+ 0001:00001078       System.Generics.Collections.TListHelper.InternalReverseN
+ 0001:00001080       System.Generics.Collections.TListHelper.InternalSetCapacity
+ 0001:00001088       System.Generics.Collections.TListHelper.InternalSetCount4
+ 0001:00001090       System.Generics.Collections.TListHelper.InternalSetCountN
+ 0001:00001098       System.Generics.Collections.TListHelper.InternalToArray
+ 0001:00000F70       System.Generics.Collections.TListHelper.SetItem4
+ 0001:00000F78       System.Generics.Collections.TListHelper.SetItemN
+ 0001:00000F28       System.Generics.Defaults.BinaryCompare
+ 0002:000000E8       System.Generics.Defaults.TIStringComparer.Create@
+ 0001:00000F48       System.Generics.Defaults.TIStringComparer.Destroy@
+ 0002:000000F0       System.Generics.Defaults.TPointerComparer.Create@
+ 0001:00000F50       System.Generics.Defaults.TPointerComparer.Destroy@
+ 0002:000000E0       System.Generics.Defaults.TStringComparer.Create@
+ 0001:00000F40       System.Generics.Defaults.TStringComparer.Destroy@
+ 0001:00000F30       System.Generics.Defaults._LookupVtableInfo
+ 0001:00000F38       System.Generics.Defaults._MakeExtInstance
+ 0001:00000E68       System.Internal.ExcUtils.Finalization
+ 0002:00000030       System.Internal.ExcUtils.System.Internal.ExcUtils
+ 0001:00000EC0       System.Math.Finalization
+ 0002:00000078       System.Math.System.Math
+ 0001:00000EE0       System.Rtti.Finalization
+ 0002:00000098       System.Rtti.System.Rtti
+ 0002:00000090       System.Rtti.TValue.Create@
+ 0001:00000ED8       System.Rtti.TValue.Destroy@
+ 0001:00000ED0       System.SyncObjs.Finalization
+ 0002:00000088       System.SyncObjs.System.SyncObjs
+ 0002:00000048       System.SysUtils.Exception.Create@
+ 0001:00000E80       System.SysUtils.Exception.CreateFmt
+ 0001:00000E88       System.SysUtils.Exception.Destroy@
+ 0001:00000EA0       System.SysUtils.Finalization
+ 0001:00000E78       System.SysUtils.OutOfMemoryError
+ 0002:00000058       System.SysUtils.System.SysUtils
+ 0002:00000040       System.SysUtils.TEncoding.Create@
+ 0001:00000E98       System.SysUtils.TEncoding.Destroy@
+ 0002:00000038       System.SysUtils.TLanguages.Create@
+ 0001:00000E90       System.SysUtils.TLanguages.Destroy@
+ 0002:00000050       System.SysUtils.TOSVersion.Create@
+ 0001:00000E70       System.SysUtils.TOSVersion.Destroy@
+ 0002:00000080       System.TimeSpan.TTimeSpan.Create@
+ 0001:00000EC8       System.TimeSpan.TTimeSpan.Destroy@
+ 0001:00000EB8       System.TypInfo.Finalization
+ 0002:00000070       System.TypInfo.System.TypInfo
+ 0001:00000E48       System.UITypes.Finalization
+ 0002:00000010       System.UITypes.System.UITypes
+ 0001:00000EB0       System.Variants.Finalization
+ 0002:00000068       System.Variants.System.Variants
+ 0001:00000EA8       System.VarUtils.Finalization
+ 0002:00000060       System.VarUtils.System.VarUtils
+ 0001:00000E58       Winapi.PsAPI.Finalization
+ 0002:00000020       Winapi.PsAPI.Winapi.PsAPI
+ 0001:00000E50       Winapi.Windows.PkgHelper.Finalization
+ 0002:00000018       Winapi.Windows.PkgHelper.Winapi.Windows.PkgHelper
+
+

@@ -13,7 +13,8 @@
 use goblin::{
     error::Result as GoblinResult,
     pe::resource::{
-        ImageResourceDirectory, RT_RCDATA, ResourceDataEntry, ResourceEntry, ResourceEntryIterator,
+        ImageResourceDirectory, RT_RCDATA, RT_STRING, ResourceDataEntry, ResourceEntry,
+        ResourceEntryIterator,
     },
 };
 use scroll::{LE, Pread};
@@ -35,7 +36,7 @@ pub struct ResourceBody<'a> {
 /// branch, or no entry matching `name`. Picks the neutral-language entry
 /// when available, otherwise the first language.
 pub fn find_rcdata<'a>(ctx: &BinaryContext<'a>, name: &str) -> Option<ResourceBody<'a>> {
-    let pe = ctx.pe.as_ref()?;
+    let pe = ctx.pe()?;
     let rdir = pe.resource_data?;
     let rsrc = ctx.sections().rsrc?;
     let rsrc_bytes = ctx.section_data(&rsrc)?;
@@ -69,7 +70,7 @@ pub fn find_rcdata<'a>(ctx: &BinaryContext<'a>, name: &str) -> Option<ResourceBo
 /// with the resource body. Used by the DFM finder (TPF0 streams) in later
 /// iterations.
 pub fn iter_rcdata_named<'a>(ctx: &BinaryContext<'a>) -> Vec<(String, ResourceBody<'a>)> {
-    let Some(pe) = ctx.pe.as_ref() else {
+    let Some(pe) = ctx.pe() else {
         return Vec::new();
     };
     let Some(rdir) = pe.resource_data else {
@@ -112,6 +113,86 @@ pub fn iter_rcdata_named<'a>(ctx: &BinaryContext<'a>) -> Vec<(String, ResourceBo
         };
         out.push((name, body));
     }
+    out
+}
+
+/// Decode every string of the PE string table (`RT_STRING`) as
+/// `(identifier, text)`, in identifier order.
+///
+/// Win32 stores strings in blocks of sixteen: block `n` (its numeric
+/// resource ID) holds identifiers `(n - 1) * 16 .. n * 16`, each as a `u16`
+/// length followed by that many UTF-16LE code units; a zero length means
+/// the identifier is unused. Delphi's `resourcestring`s live here (see
+/// [`crate::resstrings`]). Empty for non-PE input.
+pub fn string_table(ctx: &BinaryContext<'_>) -> Vec<(u32, String)> {
+    let (Some(pe), Some(rsrc)) = (ctx.pe(), ctx.sections().rsrc) else {
+        return Vec::new();
+    };
+    let (Some(rdir), Some(rsrc_bytes)) = (pe.resource_data, ctx.section_data(&rsrc)) else {
+        return Vec::new();
+    };
+    let Some(type_entry) = rdir.entries().find_map(|e| {
+        let e = e.ok()?;
+        (e.id() == Some(RT_STRING) && e.data_is_directory()).then_some(e)
+    }) else {
+        return Vec::new();
+    };
+    let Ok(blocks) = iter_subdir_entries(rsrc_bytes, type_entry.offset_to_directory() as usize)
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in blocks {
+        let Ok(entry) = item else { continue };
+        let Some(block) = entry.id().filter(|&b| b > 0) else {
+            continue;
+        };
+        if !entry.data_is_directory() {
+            continue;
+        }
+        let Some((lang, data_entry)) =
+            pick_language(rsrc_bytes, entry.offset_to_directory() as usize)
+        else {
+            continue;
+        };
+        let Some(body) = resolve_data(ctx, &data_entry, lang) else {
+            continue;
+        };
+        let first = u32::from(block.saturating_sub(1)).saturating_mul(16);
+        let mut cursor = 0usize;
+        for index in 0..16u32 {
+            let Some(len) = body
+                .data
+                .get(cursor..cursor.saturating_add(2))
+                .and_then(|b| <[u8; 2]>::try_from(b).ok())
+            else {
+                break;
+            };
+            let units = usize::from(u16::from_le_bytes(len));
+            cursor = cursor.saturating_add(2);
+            let Some(chars) = body
+                .data
+                .get(cursor..cursor.saturating_add(units.saturating_mul(2)))
+            else {
+                break;
+            };
+            cursor = cursor.saturating_add(units.saturating_mul(2));
+            if units == 0 {
+                continue;
+            }
+            let utf16: Vec<u16> = chars
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_le_bytes(pair))
+                .collect();
+            out.push((
+                first.saturating_add(index),
+                String::from_utf16_lossy(&utf16),
+            ));
+        }
+    }
+    out.sort_by_key(|&(id, _)| id);
     out
 }
 
@@ -174,7 +255,7 @@ fn resolve_data<'a>(
     de: &ResourceDataEntry,
     language: u32,
 ) -> Option<ResourceBody<'a>> {
-    let pe = ctx.pe.as_ref()?;
+    let pe = ctx.pe()?;
     let va = pe.image_base.checked_add(de.offset_to_data as u64)?;
     let file_off = ctx.va_to_file(va)?;
     let size = de.size as usize;

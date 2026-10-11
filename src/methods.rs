@@ -6,8 +6,8 @@
 //!
 //! ## Delphi layout
 //!
-//! Source: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_MethodTable.py:36-49`,
-//! cross-checked with `reference/pythia/pythia/core/structures.py:331-343`.
+//! Source: DelphiHelper `DelphiHelper/core/DelphiClass_MethodTable.py:36-49`,
+//! cross-checked with pythia `pythia/core/structures.py:331-343`.
 //!
 //! ```text
 //!   Count: u16
@@ -20,7 +20,7 @@
 //!
 //! ## FPC layout
 //!
-//! Source: `reference/fpc-source/rtl/objpas/typinfo.pp:445-468`
+//! Source: FPC `rtl/objpas/typinfo.pp:445-468`
 //! (`TVmtMethodEntry`, `TVmtMethodTable`).
 //!
 //! ```text
@@ -32,13 +32,14 @@
 //!
 //! Extended FPC tables (`TVmtMethodExTable`) carry parameter metadata after
 //! the basic entry; they are referenced through the method table trailer
-//! and decoded in iteration 4.
+//! and are not decoded here.
 
-use std::str;
+use std::{ops::Range, str};
 
 use crate::{
     formats::BinaryContext,
     limits::{MAX_METHODS_PER_CLASS, MAX_METHODS_PER_CLASS_FPC},
+    signatures::ExtendedMethodInfo,
     util::{read_ptr, read_short_string_at_file, read_short_string_at_va, read_u16, read_u32},
     vmt::{Vmt, VmtFlavor},
 };
@@ -47,7 +48,7 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct MethodEntry<'a> {
     /// Method name (short-string body, borrowed from the input).
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
     /// Virtual address of the method's code entry point.
     ///
     /// This is an absolute VA. For PE consumers operating in RVA space,
@@ -93,14 +94,42 @@ impl<'a> MethodEntry<'a> {
             VmtFlavor::Delphi => iter_delphi(ctx, vmt),
             VmtFlavor::Fpc => iter_fpc(ctx, vmt),
         };
-        result.unwrap_or_else(|| {
-            crate::__undelphi_trace_warn!(
-                vmt_va = vmt.va,
-                method_table = vmt.method_table,
-                "MethodEntry::iter: method-table walk bailed out"
-            );
-            Vec::new()
-        })
+        result.map_or_else(
+            || {
+                crate::__undelphi_trace_warn!(
+                    vmt_va = vmt.va,
+                    method_table = vmt.method_table,
+                    "MethodEntry::iter: method-table walk bailed out"
+                );
+                Vec::new()
+            },
+            |(entries, _)| entries,
+        )
+    }
+
+    /// Returns the virtual addresses `vmt`'s published-method table
+    /// occupies: its count, its entries and, on Delphi 2010 and later, the
+    /// extended section's count and records.
+    ///
+    /// `None` when the class has no method table or its walk bails out. The
+    /// records an extended entry points at lie elsewhere and are not
+    /// included.
+    pub fn table_extent(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Range<u64>> {
+        if vmt.method_table == 0 {
+            return None;
+        }
+        let base_off = ctx.va_to_file(vmt.method_table)?;
+        let end_off = match vmt.flavor {
+            VmtFlavor::Delphi => {
+                let (_, published_end) = iter_delphi(ctx, vmt)?;
+                iter_delphi_extended(ctx, vmt)
+                    .filter(|(extended, _)| !extended.is_empty())
+                    .map_or(published_end, |(_, extended_end)| extended_end)
+            }
+            VmtFlavor::Fpc => iter_fpc(ctx, vmt)?.1,
+        };
+        let len = u64::try_from(end_off.checked_sub(base_off)?).ok()?;
+        Some(vmt.method_table..vmt.method_table.checked_add(len)?)
     }
 }
 
@@ -115,20 +144,20 @@ impl<'a> MethodEntry<'a> {
 /// default extended RTTI, *without* requiring `{$METHODINFO ON}`. This is
 /// the primary signature source for Delphi 2010+ binaries.
 ///
-/// Source: `reference/IDR64/IDCGen.cpp::OutputMethodTable` (ExCount loop)
+/// Source: IDR64 `IDCGen.cpp::OutputMethodTable` (ExCount loop)
 /// and `OutputVmtMethodEntry`.
 #[derive(Debug, Clone, Copy)]
 pub struct DelphiExtMethod<'a> {
     /// Method name (short-string body, borrowed from the input).
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
     /// Method code entry-point VA.
     pub code_va: u64,
-    /// Raw entry flags word. The bit layout is not the FPC
-    /// `RTTIFlagVisibilityMask` scheme, so it is surfaced verbatim rather
-    /// than decoded into a visibility class.
+    /// Raw entry flags word (`TVmtMethodExEntry.Flags`); [`Self::info`]
+    /// decodes it (visibility, kind, dispatch, `abstract`).
     pub flags: u16,
-    /// VMT slot index for virtual methods (`-1` / large unsigned for
-    /// non-virtual; stored as a signed `i16`).
+    /// The VMT slot (counted from the class pointer; negative inside the
+    /// header) of a virtual method, the dynamic index of a dynamic one;
+    /// meaningless for a static method ([`Self::info`] tells which).
     pub vmt_index: i16,
     /// The signature trailer bytes (same layout as
     /// [`MethodEntry::trailer`]); empty when the entry has no tail.
@@ -136,6 +165,14 @@ pub struct DelphiExtMethod<'a> {
 }
 
 impl<'a> DelphiExtMethod<'a> {
+    /// The entry's flags and VMT index, with their decoders.
+    pub fn info(&self) -> ExtendedMethodInfo {
+        ExtendedMethodInfo {
+            flags: self.flags,
+            vmt_index: self.vmt_index,
+        }
+    }
+
     /// Method name as `&str`, lossily decoded.
     #[inline]
     pub fn name(&self) -> &'a str {
@@ -156,14 +193,17 @@ impl<'a> DelphiExtMethod<'a> {
         if vmt.method_table == 0 || vmt.flavor != VmtFlavor::Delphi {
             return Vec::new();
         }
-        iter_delphi_extended(ctx, vmt).unwrap_or_else(|| {
-            crate::__undelphi_trace_warn!(
-                vmt_va = vmt.va,
-                method_table = vmt.method_table,
-                "DelphiExtMethod::iter: extended-method walk bailed out"
-            );
-            Vec::new()
-        })
+        iter_delphi_extended(ctx, vmt).map_or_else(
+            || {
+                crate::__undelphi_trace_warn!(
+                    vmt_va = vmt.va,
+                    method_table = vmt.method_table,
+                    "DelphiExtMethod::iter: extended-method walk bailed out"
+                );
+                Vec::new()
+            },
+            |(entries, _)| entries,
+        )
     }
 }
 
@@ -180,15 +220,17 @@ fn is_plausible_method_name(name: &[u8]) -> bool {
     name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// Walks the extended-method section, answering its entries and the file
+/// offset just past its last record.
 fn iter_delphi_extended<'a>(
     ctx: &BinaryContext<'a>,
     vmt: &Vmt<'a>,
-) -> Option<Vec<DelphiExtMethod<'a>>> {
+) -> Option<(Vec<DelphiExtMethod<'a>>, usize)> {
     let base_off = ctx.va_to_file(vmt.method_table)?;
     let data = ctx.data();
     let count = read_u16(data, base_off)? as usize;
     if count > MAX_METHODS_PER_CLASS {
-        return Some(Vec::new());
+        return Some((Vec::new(), base_off));
     }
     let psize = vmt.pointer_size as usize;
 
@@ -197,14 +239,14 @@ fn iter_delphi_extended<'a>(
     for _ in 0..count {
         let size = read_u16(data, cursor)? as usize;
         if size == 0 {
-            return Some(Vec::new());
+            return Some((Vec::new(), base_off));
         }
         cursor = cursor.checked_add(size)?;
     }
 
     let ex_count = read_u16(data, cursor)? as usize;
     if ex_count == 0 || ex_count > MAX_METHODS_PER_CLASS {
-        return Some(Vec::new());
+        return Some((Vec::new(), cursor));
     }
     let mut entry_cursor = cursor.checked_add(2)?;
     // Each extended record: EntryPtr(ptr) + Flags(u16) + VirtualIndex(u16).
@@ -260,15 +302,23 @@ fn iter_delphi_extended<'a>(
             trailer,
         });
     }
-    Some(out)
+    Some((out, entry_cursor))
 }
 
-fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodEntry<'a>>> {
+/// Walks a Delphi published-method table, answering its entries and the
+/// file offset just past the last.
+fn iter_delphi<'a>(
+    ctx: &BinaryContext<'a>,
+    vmt: &Vmt<'a>,
+) -> Option<(Vec<MethodEntry<'a>>, usize)> {
     let base_off = ctx.va_to_file(vmt.method_table)?;
     let data = ctx.data();
     let count = read_u16(data, base_off)? as usize;
-    if count == 0 || count > MAX_METHODS_PER_CLASS {
-        return Some(Vec::new());
+    if count > MAX_METHODS_PER_CLASS {
+        return None;
+    }
+    if count == 0 {
+        return Some((Vec::new(), base_off.checked_add(2)?));
     }
 
     let psize = vmt.pointer_size as usize;
@@ -308,17 +358,19 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodE
         });
         cursor = cursor.checked_add(size)?;
     }
-    Some(out)
+    Some((out, cursor))
 }
 
-fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodEntry<'a>>> {
+/// Walks an FPC published-method table, answering its entries and the file
+/// offset just past the last.
+fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<(Vec<MethodEntry<'a>>, usize)> {
     let base_off = ctx.va_to_file(vmt.method_table)?;
     let data = ctx.data();
     // FPC's `TVmtMethodTable.Count` is `LongWord` (u32) regardless of
     // pointer width - see `typinfo.pp:455-467`.
     let count = read_u32(data, base_off)? as usize;
-    if count == 0 || count > MAX_METHODS_PER_CLASS_FPC {
-        return Some(Vec::new());
+    if count > MAX_METHODS_PER_CLASS_FPC {
+        return None;
     }
 
     let psize = vmt.pointer_size as usize;
@@ -340,7 +392,8 @@ fn iter_fpc<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<MethodEntr
             trailer: &[],
         });
     }
-    Some(out)
+    let end = entries_off.checked_add(count.checked_mul(entry_size)?)?;
+    Some((out, end))
 }
 
 #[cfg(test)]

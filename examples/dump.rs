@@ -14,6 +14,7 @@ use undelphi::{
     dfm::{DfmObject, DfmProperty, DfmValue},
     extrtti::AttributeEntry,
     fields::FieldTypeRef,
+    imports::Import,
     layout::{LayoutKind, reconstruct},
     render::{render_enum_ordinal, render_set_mask_with_enum, render_type_label, render_value},
     rtti::{EnumInfo, TkClassInfo, TypeDetail, TypeHeader, TypeKind},
@@ -98,6 +99,10 @@ fn print_overview(bin: &DelphiBinary<'_>, path: &str, size: usize) {
     if let Some(ed) = bin.edition() {
         println!("edition (DVCLAL):  {:?}", ed);
     }
+    let packages = bin.required_packages();
+    if !packages.is_empty() {
+        println!("runtime packages:  {}", packages.join(", "));
+    }
 
     let secs = ctx.sections();
     println!("\nsections:");
@@ -173,7 +178,17 @@ fn print_classes_full(bin: &DelphiBinary<'_>) {
 
 fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFlavor) {
     let classes = bin.classes();
-    let ancestry: Vec<_> = classes.ancestors(class).map(|a| a.name()).collect();
+    let mut ancestry: Vec<String> = classes
+        .ancestors(class)
+        .map(|a| a.name().to_string())
+        .collect();
+    let mut outer = class;
+    while let Some(parent) = bin.parent_class(outer) {
+        outer = parent;
+    }
+    if let Some(import) = bin.external_parent(outer) {
+        ancestry.push(import_label(import));
+    }
     let chain = if ancestry.is_empty() {
         "(root)".to_string()
     } else {
@@ -200,7 +215,9 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
                 Some(detail) => render_detail_inline(&detail),
                 None => match bin.field_type(class, f) {
                     Some(h) => render_type_label(&h),
-                    None => format!("{:?}", f.type_ref),
+                    None => bin
+                        .field_class_import(class, f)
+                        .map_or_else(|| format!("{:?}", f.type_ref), import_label),
                 },
             };
             println!("      +0x{:06x}  {:<36} : {}", f.offset, f.name(), ty_label);
@@ -273,6 +290,23 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
         println!("    dynamic / message slots ({}):", dyn_slots.len());
         for d in &dyn_slots {
             println!("      msgid={:>6}  handler=0x{:x}", d.index, d.handler_va);
+        }
+    }
+
+    // Automation table (`automated` section).
+    let auto = bin.auto_entries(class);
+    if !auto.is_empty() {
+        println!("    automated members ({}):", auto.len());
+        for a in &auto {
+            println!(
+                "      dispid={:>5}  {:<24} flags=0x{:x}  result=vt{}  params={:?}  addr=0x{:x}",
+                a.dispid,
+                a.name(),
+                a.flags,
+                a.result_type,
+                a.param_types,
+                a.address
+            );
         }
     }
 
@@ -366,7 +400,9 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
         for p in &props {
             let ty_label = match bin.property_type_detail(class, p) {
                 Some(detail) => render_detail_inline(&detail),
-                None => "?".to_string(),
+                None => bin
+                    .import_at(p.prop_type_ref)
+                    .map_or_else(|| "?".to_string(), import_label),
             };
             println!(
                 "      {:<32} : {:<50}  get={:?}:0x{:x}  set={:?}:0x{:x}  index={}  default={}",
@@ -383,6 +419,20 @@ fn print_one_class<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>, flavor: VmtFla
     }
 
     let _ = flavor;
+}
+
+/// Renders an import from a runtime package as `Unit.Name [kind, module]`.
+fn import_label(import: &Import) -> String {
+    match import.symbol() {
+        Some(s) => format!(
+            "{}.{} [{}, {}]",
+            s.unit,
+            s.name,
+            s.kind.as_str(),
+            import.module()
+        ),
+        None => format!("{} [{}]", import.name(), import.module()),
+    }
 }
 
 /// Compact inline rendering of a [`TypeDetail`] - `Name [Kind]` plus a
@@ -508,7 +558,10 @@ fn render_detail_inline(detail: &TypeDetail<'_>) -> String {
                 x.element_count, elem, x.array_size
             )
         }
-        TypeDetail::String(x) => format!("{} codepage={}", base, x.code_page),
+        TypeDetail::String(x) => match x.code_page {
+            Some(code_page) => format!("{base} codepage={code_page}"),
+            None => base,
+        },
         TypeDetail::Other(_) => base,
         _ => base,
     }
@@ -678,7 +731,7 @@ fn print_enum_catalog(bin: &DelphiBinary<'_>) {
             if let FieldTypeRef::TypeInfoPtr(pptr) = f.type_ref
                 && let Some(ti_va) =
                     TypeHeader::deref_pptypeinfo(ctx, pptr, class.pointer_size() as usize)
-                && let Some(detail) = TypeDetail::from_va(ctx, ti_va, flavor)
+                && let Some(detail) = TypeDetail::from_va(ctx, ti_va, flavor, bin.string_layout())
                 && matches!(
                     detail,
                     TypeDetail::Record(_)

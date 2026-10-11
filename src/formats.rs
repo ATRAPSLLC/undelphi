@@ -14,8 +14,6 @@
 //!   name.
 //! - VA ↔ file-offset mapping, so pointers embedded in RTTI / VMT records can
 //!   be translated back to byte offsets.
-//!
-//! See `RESEARCH.md` §9 (PE), §10 (Mach-O / ELF) for the format-level context.
 
 use std::fmt;
 
@@ -24,12 +22,17 @@ use goblin::{
     elf::{
         header::{self as elf_header, EM_386, EM_AARCH64, EM_ARM, EM_X86_64},
         program_header::PT_LOAD,
-        section_header::SHT_NOBITS,
+        section_header::{SHF_EXECINSTR, SHT_NOBITS},
     },
-    mach::{Mach, cputype as mach_cpu},
+    mach::{
+        Mach,
+        constants::{S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS},
+        cputype as mach_cpu,
+    },
     pe::{
         PE,
         header::{COFF_MACHINE_ARM, COFF_MACHINE_ARM64, COFF_MACHINE_X86, COFF_MACHINE_X86_64},
+        section_table::{IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE},
     },
 };
 
@@ -142,9 +145,8 @@ pub struct DelphiSections {
 
 /// Parsed binary context. Parses the container exactly once.
 ///
-/// All fields are `pub(crate)` to let downstream modules slice cheaply without
-/// going through accessors in hot paths. The borrow contract is enforced
-/// by the lifetime parameter.
+/// Fields are private; accessors hand out the parsed pieces. The borrow
+/// contract is enforced by the lifetime parameter.
 pub struct BinaryContext<'a> {
     data: &'a [u8],
     format: BinaryFormat,
@@ -154,6 +156,14 @@ pub struct BinaryContext<'a> {
     /// Pre-sorted by `segment_va` so [`BinaryContext::va_to_file`] can binary
     /// search.
     segments: Vec<(u64, u64, u64)>,
+    /// `(start_va, end_va)` of every executable section: PE sections marked
+    /// `IMAGE_SCN_MEM_EXECUTE` / `IMAGE_SCN_CNT_CODE` (Delphi XE+ splits code
+    /// into `.text` and the unit-initialization `.itext`), ELF sections with
+    /// `SHF_EXECINSTR`, Mach-O sections with instruction attributes.
+    code_ranges: Vec<(u64, u64)>,
+    /// `(start_va, end_va)` of every PE section's full virtual extent,
+    /// including bytes with no file backing (`BSS`, `.bss`).
+    image_ranges: Vec<(u64, u64)>,
     /// Cached pointer width inferred from the parsed container, populated in
     /// [`BinaryContext::new`] so accessors don't re-parse the binary.
     pointer_size: Option<usize>,
@@ -171,10 +181,8 @@ pub struct BinaryContext<'a> {
     /// `Machine`, ELF `e_machine`, Mach-O `cputype`). `Unknown` when the
     /// container couldn't be parsed.
     target_arch: TargetArch,
-    /// The goblin-parsed PE, retained so downstream modules (e.g. resources)
-    /// can use goblin's structural types instead of re-rolling their own.
-    /// `None` for non-PE containers or unparseable PE input.
-    pub(crate) pe: Option<PE<'a>>,
+    /// The goblin-parsed PE; see [`BinaryContext::pe`].
+    pe: Option<PE<'a>>,
 }
 
 impl<'a> fmt::Debug for BinaryContext<'a> {
@@ -199,6 +207,8 @@ impl<'a> BinaryContext<'a> {
         let mut format = detect_format(data);
         let mut sections = DelphiSections::default();
         let mut segments = Vec::new();
+        let mut code_ranges: Vec<(u64, u64)> = Vec::new();
+        let mut image_ranges: Vec<(u64, u64)> = Vec::new();
         let mut pe_holder: Option<PE<'a>> = None;
         let mut pointer_size: Option<usize> = None;
         let mut container_parsed = false;
@@ -252,6 +262,9 @@ impl<'a> BinaryContext<'a> {
                         if sh.sh_type == SHT_NOBITS || sh.sh_size == 0 {
                             continue;
                         }
+                        if sh.sh_flags & u64::from(SHF_EXECINSTR) != 0 {
+                            code_ranges.push((sh.sh_addr, sh.sh_addr.saturating_add(sh.sh_size)));
+                        }
                         let range = SectionRange {
                             offset: sh.sh_offset as usize,
                             size: sh.sh_size as usize,
@@ -294,6 +307,14 @@ impl<'a> BinaryContext<'a> {
                             if section.size == 0 {
                                 continue;
                             }
+                            if section.flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS)
+                                != 0
+                            {
+                                code_ranges.push((
+                                    section.addr,
+                                    section.addr.saturating_add(section.size),
+                                ));
+                            }
                             let range = SectionRange {
                                 offset: section.offset as usize,
                                 size: section.size as usize,
@@ -334,6 +355,18 @@ impl<'a> BinaryContext<'a> {
                         let size = section.size_of_raw_data as u64;
                         if size > 0 {
                             segments.push((va, file_off, size));
+                        }
+                        let virtual_extent = section.virtual_size.max(section.size_of_raw_data);
+                        image_ranges.push((va, va.saturating_add(u64::from(virtual_extent))));
+                        if section.characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE)
+                            != 0
+                        {
+                            let extent = if section.virtual_size != 0 {
+                                section.virtual_size
+                            } else {
+                                section.size_of_raw_data
+                            };
+                            code_ranges.push((va, va.saturating_add(u64::from(extent))));
                         }
                         let Ok(name) = section.name() else { continue };
                         if size == 0 {
@@ -376,12 +409,21 @@ impl<'a> BinaryContext<'a> {
 
         // Pre-sort segments so `va_to_file` can binary-search.
         segments.sort_unstable_by_key(|&(seg_va, _, _)| seg_va);
+        // Containers whose flags were unavailable fall back to the primary
+        // code section.
+        if code_ranges.is_empty()
+            && let Some(t) = sections.text
+        {
+            code_ranges.push((t.va, t.va.saturating_add(t.size as u64)));
+        }
 
         Self {
             data,
             format,
             sections,
             segments,
+            code_ranges,
+            image_ranges,
             pointer_size,
             container_parsed,
             target_os,
@@ -407,18 +449,36 @@ impl<'a> BinaryContext<'a> {
         self.target_arch
     }
 
-    /// Whether `va` lies inside the binary's primary code section (PE
-    /// `.text` / `CODE`, ELF `.text`, Mach-O `__text`). Used by walkers
-    /// that need to validate function-pointer candidates without an
-    /// explicit count.
+    /// Whether `va` lies inside an executable section (PE sections marked
+    /// executable or code - Delphi XE+ `.text` and `.itext` alike - ELF
+    /// `SHF_EXECINSTR`, Mach-O instruction sections). Used by walkers that
+    /// need to validate function-pointer candidates without an explicit
+    /// count.
     pub fn is_code_va(&self, va: u64) -> bool {
-        let Some(t) = self.sections.text else {
-            return false;
-        };
-        let Some(end) = t.va.checked_add(t.size as u64) else {
-            return false;
-        };
-        va >= t.va && va < end
+        self.code_ranges
+            .iter()
+            .any(|&(start, end)| va >= start && va < end)
+    }
+
+    /// The goblin-parsed PE image, so callers can use goblin's structural
+    /// types (imports, exports, resources, entry point) instead of re-rolling
+    /// their own. `None` for non-PE containers or unparseable PE input. The
+    /// `goblin` crate is re-exported as [`crate::goblin`] so the type can be
+    /// named.
+    #[inline]
+    pub fn pe(&self) -> Option<&PE<'a>> {
+        self.pe.as_ref()
+    }
+
+    /// Whether `va` lies inside the loaded image: a file-backed segment, or
+    /// on PE any section's virtual extent, including uninitialised data
+    /// (`BSS`) that has no bytes in the file.
+    pub fn is_image_va(&self, va: u64) -> bool {
+        self.va_to_file(va).is_some()
+            || self
+                .image_ranges
+                .iter()
+                .any(|&(start, end)| va >= start && va < end)
     }
 
     /// Whether the underlying container (PE / ELF / Mach-O) parsed cleanly.

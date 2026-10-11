@@ -9,7 +9,7 @@
 //!
 //! ## Delphi `TPropInfo` layout
 //!
-//! Source: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:89-139`
+//! Source: DelphiHelper `DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:89-139`
 //! (pointer-arithmetic that computes each entry's recordSize).
 //!
 //! ```text
@@ -39,7 +39,7 @@
 //! | `0xFE` | Virtual method - low bits are the VMT-relative slot index. |
 //! | `0xFF` | Direct field offset - low bits are the instance-relative offset. |
 //!
-//! Sources: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:107-119`
+//! Sources: DelphiHelper `DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:107-119`
 //! (`bitmask & 0xC0 == 0` test for "static code pointer") and the same
 //! file at lines `294-305` (`(entry >> shiftVal) == 0xFF` test for the
 //! field-offset branch). The 64-bit shift width is `(ptr_size - 1) * 8 =
@@ -48,10 +48,9 @@
 //! ## FPC caveat
 //!
 //! FPC's `TPropInfo` carries extra fields (`PropProcs: Byte`, `IsStatic: Boolean`,
-//! `PropParams: PPropParams`) before `Name`. This iteration only exposes the
-//! Delphi-compatible shape; FPC properties are still decoded but the `flags`
-//! and Name offset may be slightly off for non-trivial properties. A
-//! flavor-specific FPC decoder is reserved for a future iteration.
+//! `PropParams: PPropParams`) before `Name`. Only the Delphi-compatible shape
+//! is decoded: FPC properties are read through it, so their `flags` and
+//! `Name` offset can be off for non-trivial properties.
 
 use std::str;
 
@@ -72,11 +71,12 @@ pub enum AccessKind {
     None,
     /// Direct field access - the value is the instance-relative byte offset.
     Field,
-    /// Virtual method - the value is the VMT slot index.
+    /// Virtual method - the value is the slot's byte offset in the VMT.
     Virtual,
     /// Static method - the value is a code pointer (VA).
     Static,
-    /// FPC "constant" access where the raw value is a constant index.
+    /// Constant: FPC's `ptConst`, or a Delphi `stored True` / `stored
+    /// False` clause (raw value `1` / `0`).
     Const,
 }
 
@@ -88,16 +88,19 @@ pub enum AccessKind {
 ///   image base for an RVA.
 /// - [`AccessKind::Field`] - `value` is the instance-relative byte offset
 ///   of the backing field.
-/// - [`AccessKind::Virtual`] - `value` is a **VMT slot index**, *not* a
-///   VA. Resolve against the class's virtual-method table to get a code
-///   VA. [`Access::resolve`] does this for you.
-/// - [`AccessKind::Const`] - `value` is a constant (FPC-only).
+/// - [`AccessKind::Virtual`] - `value` is the slot's **byte offset** from
+///   the class pointer, *not* a VA (Delphi `TypInfo` and FPC `typinfo.pp`
+///   both dispatch through `PPointer(ClassPtr + value)^`). Resolve against
+///   the class's virtual-method table to get a code VA.
+///   [`Access::resolve`] does this for you.
+/// - [`AccessKind::Const`] - `value` is a constant: FPC `ptConst`, or a
+///   Delphi `stored` boolean.
 /// - [`AccessKind::None`] - no handler.
 #[derive(Debug, Clone, Copy)]
 pub struct Access {
     /// How to interpret `value`.
     pub kind: AccessKind,
-    /// Kind-dependent value: field offset, VMT slot index, code VA, or
+    /// Kind-dependent value: field offset, VMT byte offset, code VA, or
     /// constant. See the type-level docs for the per-kind meaning.
     pub value: u64,
 }
@@ -114,7 +117,7 @@ pub enum AccessTarget {
     FieldOffset(u32),
     /// FPC constant value - for [`AccessKind::Const`].
     Constant(u64),
-    /// Virtual slot whose VMT lookup didn't land on a code pointer.
+    /// Virtual access whose VMT byte offset didn't land on a decoded slot.
     /// Returned only when resolution fails - the caller can still attempt
     /// their own lookup.
     UnresolvedSlot(u16),
@@ -156,15 +159,42 @@ impl Access {
         }
     }
 
+    /// Decode a Delphi getter or setter: like [`Self::from_ptr`], except a
+    /// zero pointer means the property has no such accessor
+    /// ([`AccessKind::None`]).
+    pub fn accessor_from_ptr(raw: u64, ptr_size: usize) -> Self {
+        if raw == 0 {
+            return Access {
+                kind: AccessKind::None,
+                value: 0,
+            };
+        }
+        Self::from_ptr(raw, ptr_size)
+    }
+
+    /// Decode a Delphi `stored` clause: like [`Self::from_ptr`], except a raw
+    /// value that fits in a byte is the boolean constant of `stored True`
+    /// (`1`, also the default) or `stored False` (`0`) - the test Delphi 6
+    /// `TypInfo.IsStoredProp` applies.
+    pub fn stored_from_ptr(raw: u64, ptr_size: usize) -> Self {
+        if raw <= 0xFF {
+            return Access {
+                kind: AccessKind::Const,
+                value: raw,
+            };
+        }
+        Self::from_ptr(raw, ptr_size)
+    }
+
     /// FPC-specific access decoder. FPC stores the dispatch type in the
     /// 2-bit slots of `PropProcs`. Constants from
-    /// `reference/fpc-source/rtl/objpas/typinfo.pp:146-149`:
+    /// FPC `rtl/objpas/typinfo.pp:146-149`:
     ///
     /// | Bits | Name      | Meaning |
     /// |------|-----------|---------|
     /// | `00` | `ptField` | Direct field access (raw value = instance-relative offset) |
     /// | `01` | `ptStatic`| Static procedure (raw value = code VA) |
-    /// | `10` | `ptVirtual`| Virtual method (raw value = VMT slot index) |
+    /// | `10` | `ptVirtual`| Virtual method (raw value = VMT byte offset) |
     /// | `11` | `ptConst` | Constant (raw value holds the constant) |
     ///
     /// `slot_bits_offset` is `0` for Get, `2` for Set, `4` for Stored.
@@ -205,14 +235,14 @@ impl Access {
             AccessKind::Field => AccessTarget::FieldOffset((self.value & 0xFFFF_FFFF) as u32),
             AccessKind::Const => AccessTarget::Constant(self.value),
             AccessKind::Virtual => {
-                let slot = self.value as u16;
+                // `value` is the slot's byte offset from the class pointer.
                 match virtual_methods
                     .iter()
-                    .find(|v| v.slot as u16 == slot)
+                    .find(|v| v.vmt_offset == self.value)
                     .map(|v| v.code_va)
                 {
                     Some(va) => AccessTarget::CodeVa(va),
-                    None => AccessTarget::UnresolvedSlot(slot),
+                    None => AccessTarget::UnresolvedSlot(self.value as u16),
                 }
             }
         }
@@ -227,9 +257,10 @@ pub struct Property<'a> {
     /// Getter access descriptor.
     pub get: Access,
     /// Setter access descriptor. For read-only properties the kind is
-    /// `Static` with `value == 0`.
+    /// [`AccessKind::None`].
     pub set: Access,
-    /// `Stored` clause access descriptor.
+    /// `Stored` clause access descriptor. On Delphi a `stored True` /
+    /// `stored False` constant is [`AccessKind::Const`] with value `1` / `0`.
     pub stored: Access,
     /// Property index (as in `property Foo[I: Integer]: Bar index I`).
     pub index: i32,
@@ -238,12 +269,61 @@ pub struct Property<'a> {
     pub default: i32,
     /// Name-index hint for fast property lookup.
     pub name_index: i16,
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
     /// Virtual address the `PropType` PPTypeInfo indirection holds.
     pub prop_type_ref: u64,
 }
 
 impl<'a> Property<'a> {
+    /// Decode one Delphi `TPropInfo` record at `va`: `PropType`
+    /// (`PPTypeInfo`), the get / set / stored accessors, `Index`, `Default`,
+    /// `NameIndex` and `Name`. Used for the classic published table and for
+    /// the records the Delphi 2010+ extended property table points at.
+    /// `None` for a null `va` or an implausible name.
+    pub fn from_delphi_record(ctx: &BinaryContext<'a>, va: u64, psize: usize) -> Option<Self> {
+        if va == 0 {
+            return None;
+        }
+        let file_off = ctx.va_to_file(va)?;
+        let data = ctx.data();
+        let get_off = file_off.checked_add(psize)?;
+        let set_off = get_off.checked_add(psize)?;
+        let stored_off = set_off.checked_add(psize)?;
+        let index_off = stored_off.checked_add(psize)?;
+        let default_off = index_off.checked_add(4)?;
+        let name_index_off = default_off.checked_add(4)?;
+        let name_off = name_index_off.checked_add(2)?;
+        let prop_type_ref = read_ptr(data, file_off, psize)?;
+        let get_raw = read_ptr(data, get_off, psize)?;
+        let set_raw = read_ptr(data, set_off, psize)?;
+        let stored_raw = read_ptr(data, stored_off, psize)?;
+        let index_end = index_off.checked_add(4)?;
+        let default_end = default_off.checked_add(4)?;
+        let name_index_end = name_index_off.checked_add(2)?;
+        let index = i32::from_le_bytes(data.get(index_off..index_end)?.try_into().ok()?);
+        let default = i32::from_le_bytes(data.get(default_off..default_end)?.try_into().ok()?);
+        let name_index =
+            i16::from_le_bytes(data.get(name_index_off..name_index_end)?.try_into().ok()?);
+        let name = read_short_string_at_file(data, name_off)?;
+        if name.is_empty()
+            || name.len() > MAX_IDENTIFIER_BYTES
+            || !name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return None;
+        }
+        Some(Property {
+            va,
+            get: Access::accessor_from_ptr(get_raw, psize),
+            set: Access::accessor_from_ptr(set_raw, psize),
+            stored: Access::stored_from_ptr(stored_raw, psize),
+            index,
+            default,
+            name_index,
+            name,
+            prop_type_ref,
+        })
+    }
+
     /// Property name as `&str`, lossily decoded. Pascal identifiers are
     /// ASCII in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
     #[inline]
@@ -463,9 +543,9 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Propert
         let va = range_to_va(ctx, cursor).unwrap_or(0);
         out.push(Property {
             va,
-            get: Access::from_ptr(get_raw, psize),
-            set: Access::from_ptr(set_raw, psize),
-            stored: Access::from_ptr(stored_raw, psize),
+            get: Access::accessor_from_ptr(get_raw, psize),
+            set: Access::accessor_from_ptr(set_raw, psize),
+            stored: Access::stored_from_ptr(stored_raw, psize),
             index,
             default,
             name_index,
@@ -511,6 +591,44 @@ mod tests {
         let a = Access::from_ptr(0xFE00_0000_0000_0005, 8);
         assert_eq!(a.kind, AccessKind::Virtual);
         assert_eq!(a.value, 0x5);
+    }
+
+    #[test]
+    fn accessor_from_ptr_treats_zero_as_missing() {
+        assert_eq!(Access::accessor_from_ptr(0, 4).kind, AccessKind::None);
+        assert_eq!(
+            Access::accessor_from_ptr(0xFF00_0004, 4).kind,
+            AccessKind::Field
+        );
+    }
+
+    #[test]
+    fn stored_from_ptr_decodes_boolean_constants() {
+        let never = Access::stored_from_ptr(0, 4);
+        assert_eq!((never.kind, never.value), (AccessKind::Const, 0));
+        let always = Access::stored_from_ptr(1, 4);
+        assert_eq!((always.kind, always.value), (AccessKind::Const, 1));
+        assert_eq!(
+            Access::stored_from_ptr(0x0040_3000, 4).kind,
+            AccessKind::Static
+        );
+    }
+
+    #[test]
+    fn resolve_reads_virtual_value_as_byte_offset() {
+        let slots: Vec<VirtualMethodEntry> = (0..4)
+            .map(|slot| VirtualMethodEntry {
+                slot,
+                slot_va: 0x1000 + 4 * slot as u64,
+                vmt_offset: 4 * slot as u64,
+                code_va: 0x5000 + slot as u64,
+            })
+            .collect();
+        let access = Access {
+            kind: AccessKind::Virtual,
+            value: 12,
+        };
+        assert_eq!(access.resolve(&slots), AccessTarget::CodeVa(0x5003));
     }
 
     #[test]

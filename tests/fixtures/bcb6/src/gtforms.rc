@@ -1,0 +1,21 @@
+1 VERSIONINFO
+FILEVERSION 1,2,3,4
+PRODUCTVERSION 1,2,3,4
+FILEOS 0x4
+FILETYPE 0x1
+{
+ BLOCK "StringFileInfo"
+ {
+  BLOCK "040904E4"
+  {
+   VALUE "CompanyName", "undelphi fixtures\000"
+   VALUE "FileDescription", "undelphi TPF0 ground truth\000"
+   VALUE "FileVersion", "1.2.3.4\000"
+   VALUE "ProductName", "gtforms\000"
+  }
+ }
+ BLOCK "VarFileInfo"
+ {
+  VALUE "Translation", 0x0409, 1252
+ }
+}

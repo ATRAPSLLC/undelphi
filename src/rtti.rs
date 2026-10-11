@@ -1,8 +1,9 @@
 //! Minimal RTTI (`PTypeInfo`) decoder, focused on the `tkClass` branch.
 //!
-//! This iteration extracts the class's **unit name** from the
-//! `vmtTypeInfo → tkClass → UnitName` record. Fields and properties (the
-//! rest of `tkClass` and its `TPropData` tail) are reserved for iteration 4.
+//! The `tkClass` decode extracts the class's **unit name** from the
+//! `vmtTypeInfo → tkClass → UnitName` record. Properties (the `TPropData`
+//! tail of `tkClass`) are walked by [`crate::properties`] and
+//! [`crate::extrtti`] from the offset recorded here.
 //!
 //! ## Layout (Delphi and FPC share the tkClass shape)
 //!
@@ -21,8 +22,8 @@
 //!   +...       array[TPropData.PropCount] of TPropInfo   (deferred)
 //! ```
 //!
-//! Source: `reference/DelphiHelper/DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:28-54`
-//! for the Delphi-side pointer arithmetic; `reference/fpc-source/rtl/objpas/typinfo.pp:799-806`
+//! Source: DelphiHelper `DelphiHelper/core/DelphiClass_TypeInfo_tkClass.py:28-54`
+//! for the Delphi-side pointer arithmetic; FPC `rtl/objpas/typinfo.pp:799-806`
 //! for the FPC-side record layout. They agree.
 //!
 //! ## TTypeKind values
@@ -34,20 +35,21 @@
 //! tkSString, tkLString, tkAString, tkWString, tkVariant, tkArray, tkRecord,
 //! tkInterface, tkClass, …` (so `tkClass == 15`). Sources:
 //!
-//! - Delphi: `reference/pythia/pythia/core/structures.py:11-34`
-//! - FPC: `reference/fpc-source/rtl/inc/rttih.inc:29-34`
+//! - Delphi: pythia `pythia/core/structures.py:11-34`
+//! - FPC: FPC `rtl/inc/rttih.inc:29-34`
 //!
 //! This module honors the `VmtFlavor` tag and dispatches to the right
 //! expected byte when validating `tkClass`.
 
-use std::str;
+use std::{collections::HashMap, ops::Range, str};
 
 use crate::{
+    extrtti::{AttributeEntry, Visibility, read_attr_data},
     formats::BinaryContext,
     interfaces::Guid,
     limits::{
-        MAX_ENUM_RANGE, MAX_IDENTIFIER_BYTES, MAX_METHOD_PARAMS, MAX_RECORD_FIELDS,
-        MAX_RECORD_MANAGED_FIELDS,
+        MAX_ENUM_RANGE, MAX_IDENTIFIER_BYTES, MAX_METHOD_PARAMS, MAX_METHODS_PER_RECORD,
+        MAX_RECORD_FIELDS, MAX_RECORD_MANAGED_FIELDS,
     },
     util::{
         deref_va, read_ptr, read_short_string_at_file, read_short_string_at_va, read_u16, read_u32,
@@ -64,7 +66,7 @@ pub const fn tkclass_byte(flavor: VmtFlavor) -> u8 {
 }
 
 // Compile-time check the per-flavor `tkClass` byte values against the
-// authoritative source files we mirror under `reference/`. Drift here
+// authoritative upstream sources (pythia, FPC's `rttih.inc`). Drift here
 // would silently misclassify VMTs.
 const _: () = {
     assert!(tkclass_byte(VmtFlavor::Delphi) == 7); // pythia/structures.py:19
@@ -81,7 +83,7 @@ pub fn classify_kind_byte(byte: u8, flavor: VmtFlavor) -> TypeKind {
     }
 }
 
-/// FPC ordering (from `reference/fpc-source/rtl/inc/rttih.inc:29-34`):
+/// FPC ordering (from FPC `rtl/inc/rttih.inc:29-34`):
 /// `tkUnknown, tkInteger, tkChar, tkEnumeration, tkFloat, tkSet, tkMethod,
 /// tkSString, tkLString, tkAString, tkWString, tkVariant, tkArray,
 /// tkRecord, tkInterface, tkClass, tkObject, tkWChar, tkBool, tkInt64,
@@ -216,9 +218,9 @@ impl TypeKind {
 
 /// Partially-parsed `tkClass` TypeInfo record.
 ///
-/// Only the fields covered by iteration 3 are exposed. `prop_count` is the
-/// count advertised by the TypeData header; walking the actual property
-/// array lands in iteration 4.
+/// Only the `tkClass` header is decoded here. `prop_count` is the count
+/// advertised by the TypeData header; the property array itself is walked
+/// by [`crate::properties`] from [`TkClassInfo::prop_data_file_offset`].
 #[derive(Debug, Clone, Copy)]
 pub struct TkClassInfo<'a> {
     /// VA of the PTypeInfo record this was parsed from.
@@ -228,7 +230,7 @@ pub struct TkClassInfo<'a> {
     pub kind: TypeKind,
     /// Class name as it appears in the PTypeInfo header (should match the
     /// VMT's own `class_name`).
-    pub(crate) class_name: &'a [u8],
+    class_name: &'a [u8],
     /// VA the TypeData's `ClassType` slot points at (should equal the VMT
     /// base address).
     pub class_type_va: u64,
@@ -237,14 +239,18 @@ pub struct TkClassInfo<'a> {
     pub parent_info_va: u64,
     /// Published-property count advertised by the TypeData header.
     /// **Note:** the RTTI stream then carries a `TPropData` block whose own
-    /// `PropCount` may differ (ancestry-aware vs self-only semantics -
-    /// open question, see `RESEARCH.md §14`).
+    /// `PropCount` may differ (ancestry-aware vs self-only semantics; which
+    /// one each compiler writes is not settled).
     pub prop_count: i16,
     /// Unit name as a short-string body.
-    pub(crate) unit_name: &'a [u8],
-    /// File offset where the `TPropData` block starts (needed by iteration
-    /// 4 when walking property entries).
+    unit_name: &'a [u8],
+    /// File offset where the `TPropData` block starts, where the property
+    /// walk begins.
     pub prop_data_file_offset: usize,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> TkClassInfo<'a> {
@@ -324,7 +330,7 @@ impl<'a> TkClassInfo<'a> {
         // `Name: ShortString`. x86 / x86-64 stay packed on *every* container
         // - including ELF and Mach-O - so the decision is made from the
         // architecture, not from "is this PE?".
-        // Source: `reference/fpc-source/rtl/objpas/typinfo.pp:867-871`.
+        // Source: FPC `rtl/objpas/typinfo.pp:867-871`.
         if ptr_size > 1 && ctx.target_arch().fpc_requires_proper_alignment() {
             let rem = type_data_off.checked_rem(ptr_size)?;
             if rem != 0 {
@@ -356,8 +362,15 @@ impl<'a> TkClassInfo<'a> {
             prop_count,
             unit_name,
             prop_data_file_offset,
+            end: va_at(type_info_va, file_off, prop_data_file_offset)?,
         })
     }
+}
+
+/// The virtual address of the file offset `end`, in the record that starts
+/// at `start` (file offset) and `va`.
+fn va_at(va: u64, start: usize, end: usize) -> Option<u64> {
+    va.checked_add(u64::try_from(end.checked_sub(start)?).ok()?)
 }
 
 /// Minimal identifier sanity check - same rules as [`crate::vmt`] class
@@ -387,10 +400,22 @@ pub struct TypeHeader<'a> {
     pub kind_byte: u8,
     /// Kind mapped through the flavor into the unified [`TypeKind`] enum.
     pub kind: TypeKind,
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
 }
 
 impl<'a> TypeHeader<'a> {
+    /// Build a header by hand: the `PTypeInfo` VA, the raw Kind byte, its
+    /// classified [`TypeKind`] and the name bytes. [`Self::from_va`] decodes
+    /// one from a binary.
+    pub fn new(va: u64, kind_byte: u8, kind: TypeKind, name: &'a [u8]) -> Self {
+        Self {
+            va,
+            kind_byte,
+            kind,
+            name,
+        }
+    }
+
     /// Type name as `&str`, lossily decoded.
     #[inline]
     pub fn name(&self) -> &'a str {
@@ -401,6 +426,13 @@ impl<'a> TypeHeader<'a> {
     #[inline]
     pub fn name_bytes(&self) -> &'a [u8] {
         self.name
+    }
+
+    /// Returns the virtual addresses of the header: the Kind byte and the
+    /// name short string. The kind-specific data after it is not measured.
+    pub fn extent(&self) -> Option<Range<u64>> {
+        let len = u64::try_from(self.name.len()).ok()?.checked_add(2)?;
+        Some(self.va..self.va.checked_add(len)?)
     }
 
     /// Decode the type header (Kind + Name) at a `PTypeInfo` VA.
@@ -414,7 +446,10 @@ impl<'a> TypeHeader<'a> {
         let kind = classify_kind_byte(kind_byte, flavor);
         let name_off = file_off.checked_add(1)?;
         let name = read_short_string_at_file(data, name_off)?;
-        if !is_plausible_identifier(name) {
+        // C++Builder emits `__closure` typedefs as nameless tkMethod records
+        // (`08 00` then the TypeData); every other kind must be named.
+        let nameless_closure = name.is_empty() && kind == TypeKind::Method;
+        if !nameless_closure && !is_plausible_identifier(name) {
             return None;
         }
         Some(Self {
@@ -448,7 +483,7 @@ impl<'a> TypeHeader<'a> {
 
 /// Storage width of an ordinal / enumeration type.
 ///
-/// Source: `reference/pythia/pythia/core/structures.py:49-56`.
+/// Source: pythia `pythia/core/structures.py:49-56`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrdinalType {
     /// Signed 8-bit.
@@ -493,7 +528,35 @@ impl OrdinalType {
 
 /// Partially-decoded `tkEnumeration` type info.
 ///
-/// Source layout: `reference/pythia/pythia/core/structures.py:104-112`.
+/// Source layout: pythia `pythia/core/structures.py:104-112`;
+/// Delphi 6 `TypInfo.pas` (`TTypeData` and `GetEnumName`).
+///
+/// ```text
+///   OrdType:  u8
+///   MinValue: i32
+///   MaxValue: i32
+///   BaseType: PPTypeInfo
+///   NameList: ShortString[]   only on a root enumeration (BaseType = itself)
+///   UnitName: ShortString     absent on C++Builder's `bool` and on Delphi
+///                             6's compiler-intrinsic `Boolean` / `ByteBool`
+///                             / `WordBool` / `LongBool` (the names are
+///                             followed by alignment filler such as
+///                             `8B C0`); Delphi XE+ writes `System` there
+/// ```
+///
+/// Three shapes share the kind:
+///
+/// - A **root enumeration** (`BaseType` refers to the record itself) lists
+///   `MaxValue + 1` names.
+/// - A **subrange** of an enumeration (`TLeftRight = taLeftJustify ..
+///   taRightJustify`) has no `NameList`; its names are the base type's,
+///   indexed by ordinal, and the unit name follows `BaseType` directly.
+///   When the base lives in another module (a runtime package: `BaseType`
+///   is an import slot), the names are not in this binary and `values` is
+///   empty (`TCustomLinkLabel.TLinkAlignment` in Seattle's `vcl230.bpl`).
+/// - A **boolean-like** type (`ByteBool`, `WordBool`, `LongBool`) spans the
+///   whole signed range of its storage (`MinValue < 0`) yet lists just
+///   `False` and `True`; `GetEnumName` maps any non-zero value to `True`.
 #[derive(Debug, Clone)]
 pub struct EnumInfo<'a> {
     /// Header of the enumeration type.
@@ -507,12 +570,44 @@ pub struct EnumInfo<'a> {
     /// VA of the enumeration's base-type `PPTypeInfo` (for sub-ranged
     /// enum types; `0` for top-level enum declarations).
     pub base_type_ref: u64,
-    /// Enumeration element names in declaration order.
+    /// Element names in ordinal order, `MinValue` first: the type's own
+    /// names, or for a subrange the slice of its base type's names. A
+    /// boolean-like type lists `False`, `True`.
     pub values: Vec<&'a [u8]>,
-    pub(crate) unit_name: Option<&'a [u8]>,
+    unit_name: Option<&'a [u8]>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> EnumInfo<'a> {
+    /// Build an enumeration by hand, e.g. to render the values of a type
+    /// known from another source. [`Self::from_va`] decodes one from a
+    /// binary; a hand-built one's [`TypeDetail::extent`] covers only its
+    /// header.
+    pub fn new(
+        header: TypeHeader<'a>,
+        ord: OrdinalType,
+        min: i32,
+        max: i32,
+        base_type_ref: u64,
+        values: Vec<&'a [u8]>,
+        unit_name: Option<&'a [u8]>,
+    ) -> Self {
+        let end = header.extent().map_or(header.va, |extent| extent.end);
+        Self {
+            header,
+            ord,
+            min,
+            max,
+            base_type_ref,
+            values,
+            unit_name,
+            end,
+        }
+    }
+
     /// Unit name the enumeration was declared in, as `&str`, lossily
     /// decoded.
     #[inline]
@@ -530,6 +625,18 @@ impl<'a> EnumInfo<'a> {
 impl<'a> EnumInfo<'a> {
     /// Decode a `tkEnumeration` record at `type_info_va`.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+        Self::decode(ctx, type_info_va, flavor, true)
+    }
+
+    /// Decodes the record; a subrange is followed to its base only when
+    /// `follow_base`, and a base must be a root enumeration - so a crafted
+    /// cycle of subranges cannot recurse.
+    fn decode(
+        ctx: &BinaryContext<'a>,
+        type_info_va: u64,
+        flavor: VmtFlavor,
+        follow_base: bool,
+    ) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Enumeration {
             return None;
@@ -562,24 +669,37 @@ impl<'a> EnumInfo<'a> {
         };
         cursor = bt_end;
 
-        // Plausibility: enum index range must be small. i64 arithmetic
-        // avoids overflow on extreme min/max from misaligned RTTI.
-        let range = (max as i64).checked_sub(min as i64)?;
-        if !(0..=MAX_ENUM_RANGE).contains(&range) {
+        let base_va = TypeHeader::deref_pptypeinfo(ctx, base_type_ref, ptr_size);
+        let base = base_va
+            .filter(|&base| base != type_info_va)
+            .and_then(|base| follow_base.then(|| Self::decode(ctx, base, flavor, false)))
+            .flatten();
+        let values = if let Some(base) = base {
+            // Subrange: names live in the base type, indexed by ordinal.
+            let first = usize::try_from(min.checked_sub(base.min)?).ok()?;
+            let last = usize::try_from(max.checked_sub(base.min)?).ok()?;
+            base.values.get(first..=last)?.to_vec()
+        } else if let Some((names, after)) = read_enum_names(data, cursor, min, max) {
+            // A root enumeration lists its own names. (FPC's root `BaseType`
+            // need not dereference to the record itself.)
+            cursor = after;
+            names
+        } else if base_va != Some(type_info_va) && follow_base && min <= max {
+            // A subrange whose base lives in another module: the names are
+            // not in this binary.
+            Vec::new()
+        } else {
             return None;
-        }
-        let count = range.checked_add(1)? as usize;
-        let mut values = Vec::with_capacity(count);
-        for _ in 0..count {
-            let name = read_short_string_at_file(data, cursor)?;
-            if !is_plausible_identifier(name) {
-                return None;
-            }
-            cursor = cursor.checked_add(1)?.checked_add(name.len())?;
-            values.push(name);
-        }
-        // Trailing UnitName ShortString.
-        let unit_name = read_short_string_at_file(data, cursor);
+        };
+        // Trailing UnitName ShortString. C++Builder omits it (its `bool` is
+        // followed directly by alignment padding), so only a plausible
+        // identifier counts as one.
+        let unit_name =
+            read_short_string_at_file(data, cursor).filter(|u| is_plausible_identifier(u));
+        let end_off = match unit_name {
+            Some(unit) => cursor.checked_add(1)?.checked_add(unit.len())?,
+            None => cursor,
+        };
 
         Some(Self {
             header,
@@ -589,14 +709,44 @@ impl<'a> EnumInfo<'a> {
             base_type_ref,
             values,
             unit_name,
+            end: va_at(type_info_va, file_off, end_off)?,
         })
     }
+}
+
+/// Reads a root enumeration's name list at file offset `at`: two names for
+/// a boolean-like type (`min < 0`), otherwise `max - min + 1`. Answers the
+/// names and the offset just past them; `None` when any name is
+/// implausible or the range is out of bounds.
+fn read_enum_names(data: &[u8], at: usize, min: i32, max: i32) -> Option<(Vec<&[u8]>, usize)> {
+    // i64 arithmetic avoids overflow on extreme min/max from misaligned
+    // RTTI.
+    let count = if min < 0 {
+        2
+    } else {
+        let range = (max as i64).checked_sub(min as i64)?;
+        if !(0..=MAX_ENUM_RANGE).contains(&range) {
+            return None;
+        }
+        usize::try_from(range.checked_add(1)?).ok()?
+    };
+    let mut cursor = at;
+    let mut names = Vec::with_capacity(count.min(256));
+    for _ in 0..count {
+        let name = read_short_string_at_file(data, cursor)?;
+        if !is_plausible_identifier(name) {
+            return None;
+        }
+        cursor = cursor.checked_add(1)?.checked_add(name.len())?;
+        names.push(name);
+    }
+    Some((names, cursor))
 }
 
 /// Width of the `Single` / `Double` / `Extended` / `Comp` / `Currency`
 /// float types. Stored as a single byte at `+0` of `tkFloat` TypeData.
 ///
-/// Source: `reference/pythia/pythia/core/structures.py:58-64`.
+/// Source: pythia `pythia/core/structures.py:58-64`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatType {
     /// 4-byte IEEE 754.
@@ -637,6 +787,10 @@ pub struct OrdinalInfo<'a> {
     pub min: i32,
     /// Maximum value.
     pub max: i32,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 /// `tkFloat` - floating-point types.
@@ -646,6 +800,10 @@ pub struct FloatInfo<'a> {
     pub header: TypeHeader<'a>,
     /// Which float width this is.
     pub float_type: FloatType,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 /// `tkSet` - set-of-enumeration types.
@@ -659,6 +817,20 @@ pub struct SetInfo<'a> {
     /// Convenience: the resolved element type header if the pointer was
     /// walkable. `None` when the indirection fails.
     pub element_type: Option<TypeHeader<'a>>,
+    /// The element type's lowest and highest ordinal, when it resolves to
+    /// an enumeration, integer or character type.
+    pub bounds: Option<(i32, i32)>,
+    /// The set's size in bytes: with bit 7 of `SetTypeOrSize` set, its low
+    /// bits (`System.TypInfo.SizeOfSet`); otherwise from [`Self::bounds`]
+    /// (one byte per eight ordinals from the lowest multiple of 8, three
+    /// widened to four), since before bit 7 the byte is the elements'
+    /// ordinal type even for a set wider than 32 bits. `None` when the
+    /// element type does not resolve.
+    pub size: Option<u32>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 /// `tkClassRef` - `class of TSomething` metaclass references.
@@ -670,6 +842,10 @@ pub struct ClassRefInfo<'a> {
     pub instance_type_ref: u64,
     /// Resolved instance type header, if the indirection succeeded.
     pub instance_type: Option<TypeHeader<'a>>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 /// `tkDynArray` - dynamic array types.
@@ -688,7 +864,11 @@ pub struct DynArrayInfo<'a> {
     pub elem_type_ref_any: u64,
     /// Resolved element type header if either VA points at a usable record.
     pub element_type: Option<TypeHeader<'a>>,
-    pub(crate) unit_name: Option<&'a [u8]>,
+    unit_name: Option<&'a [u8]>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> DynArrayInfo<'a> {
@@ -718,7 +898,11 @@ pub struct InterfaceTypeInfo<'a> {
     pub flags: u8,
     /// Interface GUID.
     pub guid: Guid,
-    pub(crate) unit_name: Option<&'a [u8]>,
+    unit_name: Option<&'a [u8]>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> InterfaceTypeInfo<'a> {
@@ -748,7 +932,7 @@ pub struct RecordManagedField<'a> {
 
 /// One entry in a `tkRecord`'s full (extended) field table - *every* field,
 /// not just the managed ones. Emitted by Delphi 2010+.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RecordField<'a> {
     /// Field-type `PPTypeInfo` VA.
     pub type_ref: u64,
@@ -759,10 +943,17 @@ pub struct RecordField<'a> {
     /// Visibility / flags byte.
     pub flags: u8,
     /// Field name (short-string body; may be empty for anonymous fields).
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
+    /// The field's attributes.
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 impl<'a> RecordField<'a> {
+    /// The declared visibility (the low two bits of [`Self::flags`]).
+    pub fn visibility(&self) -> Visibility {
+        Visibility::from_flags(self.flags)
+    }
+
     /// Field name as `&str`, lossily decoded.
     #[inline]
     pub fn name(&self) -> &'a str {
@@ -791,6 +982,83 @@ pub struct RecordInfo<'a> {
     /// extended layout; empty otherwise (pre-2010 Delphi, FPC, or the
     /// synthetic `vmtInitTable` record).
     pub fields: Vec<RecordField<'a>>,
+    /// The record's operator table (`RecOps`, Delphi 10.4+ managed
+    /// records); `None` when the record has none.
+    pub operators: Option<RecordOperators>,
+    /// The record's attributes (Delphi 2010+).
+    pub attributes: Vec<AttributeEntry<'a>>,
+    /// The record's methods, constructors and operators with their
+    /// signatures (Delphi 2010+, as `{$RTTI}` selects them).
+    pub methods: Vec<RecordMethod<'a>>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
+}
+
+/// A managed record's operator table (`System.TRecordOperatorTable`): up
+/// to four pointer-sized slots, `RecFlags` then the code addresses of the
+/// `Initialize`, `Finalize` and `Assign` class operators (indices
+/// `roiRecFlags` .. `roiAssignOperator`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordOperators {
+    /// `RecFlags` (`rofHasWeakField` = 2, ...); `0` when absent.
+    pub flags: u64,
+    /// The `class operator Initialize`.
+    pub initialize: Option<u64>,
+    /// The `class operator Finalize`.
+    pub finalize: Option<u64>,
+    /// The `class operator Assign`.
+    pub assign: Option<u64>,
+}
+
+/// What a record method is (`System.Rtti.TRecMethodKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordMethodKind {
+    /// An instance method: it has `Self`, which its signature omits.
+    Method,
+    /// A `class ... static` method.
+    Static,
+    /// A constructor.
+    Constructor,
+    /// A class operator.
+    Operator,
+}
+
+/// One method of a record's extended RTTI (`TRecordTypeMethod`).
+#[derive(Debug, Clone)]
+pub struct RecordMethod<'a> {
+    /// Flags byte: the kind in bits 0-1, the visibility in bits 2-3.
+    pub flags: u8,
+    /// Code address of the method.
+    pub code_va: u64,
+    name: &'a [u8],
+    /// The signature, when the compiler wrote one.
+    pub signature: Option<ProcedureSignature<'a>>,
+    /// The method's attributes.
+    pub attributes: Vec<AttributeEntry<'a>>,
+}
+
+impl<'a> RecordMethod<'a> {
+    /// The method name, lossily decoded.
+    pub fn name(&self) -> &'a str {
+        str::from_utf8(self.name).unwrap_or("<non-ascii>")
+    }
+
+    /// What the method is.
+    pub fn kind(&self) -> RecordMethodKind {
+        match self.flags & 0x03 {
+            0 => RecordMethodKind::Method,
+            1 => RecordMethodKind::Static,
+            2 => RecordMethodKind::Constructor,
+            _ => RecordMethodKind::Operator,
+        }
+    }
+
+    /// The declared visibility.
+    pub fn visibility(&self) -> Visibility {
+        Visibility::from_flags(self.flags >> 2)
+    }
 }
 
 /// `tkPointer` - `^T` typed pointer.
@@ -802,11 +1070,15 @@ pub struct PointerInfo<'a> {
     pub ref_type_ref: u64,
     /// Resolved pointed-to type header, if the indirection succeeded.
     pub ref_type: Option<TypeHeader<'a>>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> PointerInfo<'a> {
     /// Decode a `tkPointer` record. The `TypeData` is a single `PPTypeInfo`
-    /// at offset 0 (`reference/pythia/pythia/core/structures.py:146-149`).
+    /// at offset 0 (pythia `pythia/core/structures.py:146-149`).
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if header.kind != TypeKind::Pointer {
@@ -824,6 +1096,11 @@ impl<'a> PointerInfo<'a> {
             header,
             ref_type_ref,
             ref_type,
+            end: va_at(
+                type_info_va,
+                ctx.va_to_file(type_info_va)?,
+                off.checked_add(ptr_size)?,
+            )?,
         })
     }
 }
@@ -841,11 +1118,15 @@ pub struct ArrayInfo<'a> {
     pub element_type_ref: u64,
     /// Resolved element type header, if the indirection succeeded.
     pub element_type: Option<TypeHeader<'a>>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> ArrayInfo<'a> {
     /// Decode a `tkArray` record. `TypeData` is `Size: u32`, `ElCount: u32`,
-    /// `ElType: PPTypeInfo` (`reference/pythia/pythia/core/structures.py:165-172`,
+    /// `ElType: PPTypeInfo` (pythia `pythia/core/structures.py:165-172`,
     /// matching Delphi's `TArrayTypeData`). The trailing dimension table is
     /// not decoded here.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
@@ -869,6 +1150,11 @@ impl<'a> ArrayInfo<'a> {
             element_count,
             element_type_ref,
             element_type,
+            end: va_at(
+                type_info_va,
+                ctx.va_to_file(type_info_va)?,
+                base.checked_add(8)?.checked_add(ptr_size)?,
+            )?,
         })
     }
 }
@@ -909,6 +1195,10 @@ pub enum TypeDetail<'a> {
     Procedure(ProcedureInfo<'a>),
     /// tkLString / tkUString / tkWString - string RTTI with code page.
     String(StringInfo<'a>),
+    /// tkString - a `ShortString` type with its declared capacity.
+    ShortString(ShortStringInfo<'a>),
+    /// tkInt64 (FPC also tkQWord) - a 64-bit ordinal with its bounds.
+    Int64(Int64Info<'a>),
     /// Known Kind but not yet a dedicated decoder - just the header.
     Other(TypeHeader<'a>),
 }
@@ -936,15 +1226,51 @@ impl<'a> TypeDetail<'a> {
             TypeDetail::Method(x) => x.header,
             TypeDetail::Procedure(x) => x.header,
             TypeDetail::String(x) => x.header,
+            TypeDetail::ShortString(x) => x.header,
+            TypeDetail::Int64(x) => x.header,
             TypeDetail::Other(x) => *x,
         }
+    }
+
+    /// Returns the virtual addresses of the record: its header and as much
+    /// of its kind-specific data as the decode read. Data the decoder does
+    /// not read - a record's extended field table, a class's property data,
+    /// a procedure's signature, which lies apart - is not included.
+    pub fn extent(&self) -> Option<Range<u64>> {
+        let end = match self {
+            TypeDetail::Class(x) => x.end,
+            TypeDetail::Enumeration(x) => x.end,
+            TypeDetail::Ordinal(x) => x.end,
+            TypeDetail::Float(x) => x.end,
+            TypeDetail::Set(x) => x.end,
+            TypeDetail::ClassRef(x) => x.end,
+            TypeDetail::DynArray(x) => x.end,
+            TypeDetail::Pointer(x) => x.end,
+            TypeDetail::Array(x) => x.end,
+            TypeDetail::Interface(x) => x.end,
+            TypeDetail::Record(x) => x.end,
+            TypeDetail::Method(x) => x.end,
+            TypeDetail::Procedure(x) => x.end,
+            TypeDetail::String(x) => x.end,
+            TypeDetail::ShortString(x) => x.end,
+            TypeDetail::Int64(x) => x.end,
+            TypeDetail::Other(x) => return x.extent(),
+        };
+        let start = self.header().va;
+        (start < end).then_some(start..end)
     }
 }
 
 impl<'a> TypeDetail<'a> {
-    /// Dispatcher - decode whichever Kind is stored at `type_info_va`,
-    /// returning the rich per-Kind variant.
-    pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+    /// Decodes whichever kind is stored at `type_info_va`, returning the rich
+    /// per-kind variant. `layout` is the binary's string layout (see
+    /// [`crate::DelphiBinary::string_layout`]).
+    pub fn from_va(
+        ctx: &BinaryContext<'a>,
+        type_info_va: u64,
+        flavor: VmtFlavor,
+        layout: StringLayout,
+    ) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         let ptr_size = ctx.pointer_size().unwrap_or(8);
         let detail = match header.kind {
@@ -966,14 +1292,20 @@ impl<'a> TypeDetail<'a> {
             TypeKind::Interface => {
                 Self::Interface(InterfaceTypeInfo::from_va(ctx, type_info_va, flavor)?)
             }
-            TypeKind::Record => Self::Record(RecordInfo::from_va(ctx, type_info_va, flavor)?),
+            TypeKind::Record | TypeKind::MRecord => {
+                Self::Record(RecordInfo::from_va(ctx, type_info_va, flavor)?)
+            }
             TypeKind::Method => Self::Method(MethodInfo::from_va(ctx, type_info_va, flavor)?),
             TypeKind::Procedure => {
                 Self::Procedure(ProcedureInfo::from_va(ctx, type_info_va, flavor)?)
             }
             TypeKind::LString | TypeKind::UString | TypeKind::WString => {
-                Self::String(StringInfo::from_va(ctx, type_info_va, flavor)?)
+                Self::String(StringInfo::from_va(ctx, type_info_va, flavor, layout)?)
             }
+            TypeKind::String => {
+                Self::ShortString(ShortStringInfo::from_va(ctx, type_info_va, flavor)?)
+            }
+            TypeKind::Int64 => Self::Int64(Int64Info::from_va(ctx, type_info_va, flavor)?),
             _ => Self::Other(header),
         };
         Some(detail)
@@ -1016,6 +1348,8 @@ impl<'a> TypeDetail<'a> {
             TypeDetail::Ordinal(_)
             | TypeDetail::Float(_)
             | TypeDetail::String(_)
+            | TypeDetail::ShortString(_)
+            | TypeDetail::Int64(_)
             | TypeDetail::Other(_) => Vec::new(),
         }
     }
@@ -1047,6 +1381,91 @@ impl<'a> OrdinalInfo<'a> {
             ord,
             min,
             max,
+            end: va_at(type_info_va, ctx.va_to_file(type_info_va)?, max_end)?,
+        })
+    }
+}
+
+/// `tkString` - a `ShortString` type (`string[N]`).
+///
+/// Delphi 6 `TypInfo.pas`: the TypeData is `MaxLength: Byte`, the declared
+/// capacity (255 for plain `ShortString`).
+#[derive(Debug, Clone, Copy)]
+pub struct ShortStringInfo<'a> {
+    /// Header of the string type.
+    pub header: TypeHeader<'a>,
+    /// Declared maximum length in characters.
+    pub max_length: u8,
+    end: u64,
+}
+
+impl<'a> ShortStringInfo<'a> {
+    /// Decode a `tkString` record.
+    pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+        let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
+        if header.kind != TypeKind::String {
+            return None;
+        }
+        let start = ctx.va_to_file(type_info_va)?;
+        let off = start.checked_add(2)?.checked_add(header.name.len())?;
+        let max_length = *ctx.data().get(off)?;
+        Some(Self {
+            header,
+            max_length,
+            end: va_at(type_info_va, start, off.checked_add(1)?)?,
+        })
+    }
+}
+
+/// `tkInt64` (and FPC `tkQWord`) - a 64-bit ordinal type with its bounds.
+///
+/// Delphi 6 `TypInfo.pas`: the TypeData is `MinInt64Value, MaxInt64Value:
+/// Int64`. An unsigned 64-bit type keeps that layout with unsigned bit
+/// patterns: Delphi's `UInt64` is `tkInt64` with bounds `0` and `-1`
+/// (HeidiSQL XE5), and FPC's `tkQWord` stores `MinQWordValue,
+/// MaxQWordValue: QWord`. [`Self::unsigned`] says how to read them.
+#[derive(Debug, Clone, Copy)]
+pub struct Int64Info<'a> {
+    /// Header of the ordinal type.
+    pub header: TypeHeader<'a>,
+    /// Lower bound, as stored (reinterpret as `u64` when [`Self::unsigned`]).
+    pub min: i64,
+    /// Upper bound, as stored (reinterpret as `u64` when [`Self::unsigned`]).
+    pub max: i64,
+    /// `true` when the bounds are unsigned: FPC `tkQWord`, or a Delphi
+    /// `tkInt64` whose bounds are ordered only as unsigned values
+    /// (`UInt64`: `0 .. $FFFFFFFFFFFFFFFF`).
+    pub unsigned: bool,
+    end: u64,
+}
+
+impl<'a> Int64Info<'a> {
+    /// Decode a `tkInt64` / `tkQWord` record.
+    pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+        let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
+        if header.kind != TypeKind::Int64 {
+            return None;
+        }
+        let data = ctx.data();
+        let start = ctx.va_to_file(type_info_va)?;
+        let off = start.checked_add(2)?.checked_add(header.name.len())?;
+        let read = |at: usize| -> Option<i64> {
+            Some(i64::from_le_bytes(
+                data.get(at..at.checked_add(8)?)?.try_into().ok()?,
+            ))
+        };
+        let min = read(off)?;
+        let max = read(off.checked_add(8)?)?;
+        let unsigned = (flavor == VmtFlavor::Fpc && header.kind_byte == 20) || min > max;
+        if unsigned && (min as u64) > (max as u64) {
+            return None;
+        }
+        Some(Self {
+            header,
+            min,
+            max,
+            unsigned,
+            end: va_at(type_info_va, start, off.checked_add(16)?)?,
         })
     }
 }
@@ -1064,7 +1483,15 @@ impl<'a> FloatInfo<'a> {
             .checked_add(2)?
             .checked_add(header.name.len())?;
         let float_type = FloatType::from_u8(*data.get(off)?);
-        Some(Self { header, float_type })
+        Some(Self {
+            header,
+            float_type,
+            end: va_at(
+                type_info_va,
+                ctx.va_to_file(type_info_va)?,
+                off.checked_add(1)?,
+            )?,
+        })
     }
 }
 
@@ -1078,19 +1505,54 @@ impl<'a> SetInfo<'a> {
         }
         let data = ctx.data();
         let ptr_size = ctx.pointer_size()?;
-        // tkSet TypeData = { OrdType:u8, CompType:PPTypeInfo, ... }.
-        // We only need the CompType pointer; skip the ordinal byte.
-        let off = ctx
+        // tkSet TypeData = { SetTypeOrSize:u8, CompType:PPTypeInfo, ... }
+        // (Delphi 6 names the byte OrdType; a large set's size needs bit 7,
+        // which arrived with sets wider than 32 bits).
+        let type_off = ctx
             .va_to_file(type_info_va)?
             .checked_add(2)?
-            .checked_add(header.name.len())?
-            .checked_add(1)?;
+            .checked_add(header.name.len())?;
+        let type_or_size = *data.get(type_off)?;
+        let off = type_off.checked_add(1)?;
         let comp_type_ref = read_ptr(data, off, ptr_size)?;
         let element_type = TypeHeader::from_pptr(ctx, comp_type_ref, ptr_size, flavor);
+        let bounds = element_type.and_then(|h| match h.kind {
+            TypeKind::Enumeration => EnumInfo::from_va(ctx, h.va, flavor).map(|e| (e.min, e.max)),
+            TypeKind::Integer | TypeKind::Char | TypeKind::WChar => {
+                OrdinalInfo::from_va(ctx, h.va, flavor).map(|o| (o.min, o.max))
+            }
+            _ => None,
+        });
+        // With bit 7 the compiler states the size. Without it the byte is
+        // the elements' ordinal type, which says nothing about a set wider
+        // than 32 bits on compilers before the bit (XE5 writes a 32-byte
+        // `set of AnsiChar` as `otUByte`), so the size comes from the
+        // element bounds as the compiler lays sets out: one byte per eight
+        // ordinals from the lowest multiple of 8, three bytes widened to
+        // four.
+        let size = if type_or_size & 0x80 != 0 {
+            Some(u32::from(type_or_size & 0x7F))
+        } else {
+            bounds.and_then(|(min, max)| {
+                let bytes = max
+                    .div_euclid(8)
+                    .checked_sub(min.div_euclid(8))?
+                    .checked_add(1)?;
+                let bytes = u32::try_from(bytes).ok().filter(|b| (1..=32).contains(b))?;
+                Some(if bytes == 3 { 4 } else { bytes })
+            })
+        };
         Some(Self {
             header,
             comp_type_ref,
             element_type,
+            bounds,
+            size,
+            end: va_at(
+                type_info_va,
+                ctx.va_to_file(type_info_va)?,
+                off.checked_add(ptr_size)?,
+            )?,
         })
     }
 }
@@ -1114,6 +1576,11 @@ impl<'a> ClassRefInfo<'a> {
             header,
             instance_type_ref,
             instance_type,
+            end: va_at(
+                type_info_va,
+                ctx.va_to_file(type_info_va)?,
+                off.checked_add(ptr_size)?,
+            )?,
         })
     }
 }
@@ -1141,6 +1608,10 @@ impl<'a> DynArrayInfo<'a> {
         let elem_type_ref_any = read_ptr(data, off, ptr_size)?;
         off = off.checked_add(ptr_size)?;
         let unit_name = read_short_string_at_file(data, off);
+        let end_off = match unit_name {
+            Some(unit) => off.checked_add(1)?.checked_add(unit.len())?,
+            None => off,
+        };
         // Pick whichever pointer resolves - `elem_type_ref_any` is
         // emitted on modern Delphi/FPC even for non-managed elements;
         // the managed variant can be null.
@@ -1156,11 +1627,19 @@ impl<'a> DynArrayInfo<'a> {
             elem_type_ref_any,
             element_type,
             unit_name,
+            end: va_at(type_info_va, ctx.va_to_file(type_info_va)?, end_off)?,
         })
     }
 }
 
 impl<'a> InterfaceTypeInfo<'a> {
+    /// VA just past the record's unit name, where a Delphi interface's
+    /// method table begins (see [`crate::intfrtti`]).
+    #[inline]
+    pub fn method_table_va(&self) -> u64 {
+        self.end
+    }
+
     /// Decode a `tkInterface` record.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
@@ -1182,6 +1661,10 @@ impl<'a> InterfaceTypeInfo<'a> {
         let guid = Guid::from(guid_bytes);
         off = guid_end;
         let unit_name = read_short_string_at_file(data, off);
+        let end_off = match unit_name {
+            Some(unit) => off.checked_add(1)?.checked_add(unit.len())?,
+            None => off,
+        };
         let parent_type = TypeHeader::from_pptr(ctx, parent_ref, ptr_size, flavor);
         Some(Self {
             header,
@@ -1190,12 +1673,13 @@ impl<'a> InterfaceTypeInfo<'a> {
             flags,
             guid,
             unit_name,
+            end: va_at(type_info_va, ctx.va_to_file(type_info_va)?, end_off)?,
         })
     }
 }
 
 /// Method kind - matches Delphi's `TMethodKind` and FPC's mkXxx constants
-/// in `typinfo.pp`. Source: `reference/pythia/pythia/core/structures.py:36-47`.
+/// in `typinfo.pp`. Source: pythia `pythia/core/structures.py:36-47`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MethodKind {
@@ -1224,7 +1708,9 @@ pub enum MethodKind {
 }
 
 impl MethodKind {
-    fn from_u8(b: u8) -> Self {
+    /// Map a raw `TMethodKind` ordinal; out-of-range values map to
+    /// [`MethodKind::Unknown`].
+    pub fn from_u8(b: u8) -> Self {
         match b {
             0 => MethodKind::Procedure,
             1 => MethodKind::Function,
@@ -1247,8 +1733,8 @@ pub struct MethodParam<'a> {
     /// `Flags` byte - `pfVar`, `pfConst`, `pfArray`, `pfOut`, `pfResult`, etc.
     /// We expose the raw byte; see Embarcadero DocWiki "TParamFlag".
     pub flags: u8,
-    pub(crate) name: &'a [u8],
-    pub(crate) type_name: &'a [u8],
+    name: &'a [u8],
+    type_name: &'a [u8],
 }
 
 impl<'a> MethodParam<'a> {
@@ -1280,7 +1766,7 @@ impl<'a> MethodParam<'a> {
 ///
 /// Example: `TNotifyEvent = procedure(Sender: TObject) of object`.
 ///
-/// Layout (from `reference/pythia/pythia/core/structures.py:204-214`):
+/// Layout (from pythia `pythia/core/structures.py:204-214`):
 ///
 /// ```text
 ///   MethodType: u8            // Procedure / Function / etc.
@@ -1306,10 +1792,14 @@ pub struct MethodInfo<'a> {
     pub param_type_refs: Vec<u64>,
     /// Modern-RTTI return-type `PPTypeInfo` reference (`0` when absent).
     pub result_type_ref: u64,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 /// One parameter of a `tkProcedure` signature (`TProcedureParam`).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SignatureParam<'a> {
     /// `TParamFlags` byte (var / const / out / …).
     pub flags: u8,
@@ -1318,7 +1808,9 @@ pub struct SignatureParam<'a> {
     /// Resolved parameter-type header, if the indirection succeeded.
     pub param_type: Option<TypeHeader<'a>>,
     /// Parameter name (short-string body; may be empty).
-    pub(crate) name: &'a [u8],
+    name: &'a [u8],
+    /// The parameter's attributes (Delphi 2010+; empty otherwise).
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 impl<'a> SignatureParam<'a> {
@@ -1349,19 +1841,44 @@ pub struct ProcedureInfo<'a> {
     pub result_type_ref: u64,
     /// Resolved result-type header, if present and resolvable.
     pub result_type: Option<TypeHeader<'a>>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
+}
+
+/// The string RTTI layout a binary's runtime emits.
+///
+/// Code-page-aware runtimes (Delphi 2009 and later, Free Pascal 3.0 and
+/// later) stamp a `u16` code page right after the name of every ANSI string
+/// record (`tkLString`, FPC `tkAString`). Older runtimes emit no type data
+/// for any string kind, and `tkUString` / `tkWString` records never carry
+/// any.
+///
+/// Source: FPC `rtl/objpas/typinfo.pp` (`tkAString:
+/// (CodePage: Word)`), and the records of the Delphi 7 and XE5 samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StringLayout {
+    /// String records end at their name.
+    Plain,
+    /// ANSI string records carry a code page after their name.
+    CodePaged,
 }
 
 /// `tkLString` / `tkUString` / `tkWString` - string RTTI record.
-///
-/// Source: `reference/pythia/pythia/core/structures.py:196-202`.
 #[derive(Debug, Clone, Copy)]
 pub struct StringInfo<'a> {
     /// Type header.
     pub header: TypeHeader<'a>,
-    /// Code page for `AnsiString` / `RawByteString` variants. `0`
-    /// indicates "use default ANSI code page"; `1200` is UTF-16;
-    /// `65001` is UTF-8.
-    pub code_page: u16,
+    /// Code page of an ANSI string on a [`StringLayout::CodePaged`] runtime:
+    /// `0` is the default ANSI code page, `65001` is UTF-8 and `65535` marks
+    /// `RawByteString`. `None` for wide strings and for runtimes that predate
+    /// code pages.
+    pub code_page: Option<u16>,
+    /// The virtual address just past the bytes this decode read: the end of
+    /// what [`TypeDetail::extent`] states. Kind-specific data the decoder
+    /// does not read lies past it.
+    end: u64,
 }
 
 impl<'a> MethodInfo<'a> {
@@ -1387,7 +1904,7 @@ impl<'a> MethodInfo<'a> {
         // has 12 elements → a 2-byte set; Delphi's has 7 → a 1-byte set.
         // Reading the wrong width shifts every subsequent field and yields
         // garbage names, so the width is flavor-dependent.
-        // Source: `reference/fpc-source/rtl/objpas/typinfo.pp:94-96, 981-997`.
+        // Source: FPC `rtl/objpas/typinfo.pp:94-96, 981-997`.
         let flag_width = match flavor {
             VmtFlavor::Fpc => 2usize,
             VmtFlavor::Delphi => 1,
@@ -1420,7 +1937,7 @@ impl<'a> MethodInfo<'a> {
 
         // Modern-RTTI trailer (Delphi 2010+): `[ResultTypeRef: ptr (if
         // function)]`, `CC: u8`, `ParamTypeRefs[num_params]: ptr`,
-        // `MethSig: ptr`. Source: `reference/IDR64/IDCGen.cpp::OutputRTTIMethod`.
+        // `MethSig: ptr`. Source: IDR64 `IDCGen.cpp::OutputRTTIMethod`.
         // Strictly validated so legacy binaries (which stop after the
         // name-based params) don't yield garbage references.
         let ptr_size = ctx.pointer_size().unwrap_or(0);
@@ -1434,6 +1951,19 @@ impl<'a> MethodInfo<'a> {
             flavor,
         )
         .unwrap_or_default();
+        // The trailer, where one was read: the result's reference, the
+        // calling convention, each parameter's reference and the signature's.
+        let end_off = if param_type_refs.is_empty() && result_type_ref == 0 {
+            cursor
+        } else {
+            let references = params
+                .len()
+                .checked_add(1)?
+                .checked_add(usize::from(is_function))?;
+            cursor
+                .checked_add(1)?
+                .checked_add(references.checked_mul(ptr_size)?)?
+        };
 
         Some(Self {
             header,
@@ -1442,6 +1972,7 @@ impl<'a> MethodInfo<'a> {
             result_type,
             param_type_refs,
             result_type_ref,
+            end: va_at(type_info_va, ctx.va_to_file(type_info_va)?, end_off)?,
         })
     }
 }
@@ -1528,7 +2059,7 @@ impl<'a> ProcedureInfo<'a> {
     /// `ParamCount: u8`, then `{ParamFlags: u8, ParamTypeRef: ptr, Name:
     /// ShortString}` per parameter).
     ///
-    /// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:357-372`
+    /// Source: FPC `rtl/objpas/typinfo.pp:357-372`
     /// (`TProcedureSignature` / `TProcedureParam`). The signature is strictly
     /// validated - a `0xFF` flags byte, an implausible parameter count, or a
     /// parameter type pointer that doesn't resolve yields a header-only
@@ -1538,12 +2069,15 @@ impl<'a> ProcedureInfo<'a> {
         if header.kind != TypeKind::Procedure {
             return None;
         }
+        // The TypeData is one pointer, to the signature, which lies apart.
+        let end = header.extent().map_or(header.va, |extent| extent.end);
         let bare = Self {
             header,
             call_conv: 0xFF,
             params: Vec::new(),
             result_type_ref: 0,
             result_type: None,
+            end,
         };
         let Some(ptr_size) = ctx.pointer_size() else {
             return Some(bare);
@@ -1555,15 +2089,22 @@ impl<'a> ProcedureInfo<'a> {
         else {
             return Some(bare);
         };
+        let bare = Self {
+            end: end.saturating_add(u64::try_from(ptr_size).unwrap_or_default()),
+            ..bare
+        };
         // Delphi's `tkProcedure` TypeData is a pointer to the
         // `TProcedureSignature` (FPC embeds it inline; we read the Delphi
-        // pointer form). Source: `reference/pythia/.../structures.py:174-177`.
+        // pointer form). Source: pythia `pythia/core/structures.py:174-177`.
         let sig = ctx.data().get(td..).and_then(|_| {
             let sig_va = read_ptr(ctx.data(), td, ptr_size)?;
             let sig_off = ctx.va_to_file(sig_va)?;
             decode_procedure_signature(ctx, sig_off, ptr_size, flavor, header)
         });
-        Some(sig.unwrap_or(bare))
+        Some(sig.map_or(bare.clone(), |sig| ProcedureInfo {
+            end: bare.end,
+            ..sig
+        }))
     }
 }
 
@@ -1576,62 +2117,117 @@ fn decode_procedure_signature<'a>(
     flavor: VmtFlavor,
     header: TypeHeader<'a>,
 ) -> Option<ProcedureInfo<'a>> {
+    let (sig, _) = parse_procedure_signature(ctx, td, ptr_size, flavor)?;
+    let sig = sig?;
+    Some(ProcedureInfo {
+        header,
+        call_conv: sig.call_conv,
+        params: sig.params,
+        result_type_ref: sig.result_type_ref,
+        result_type: sig.result_type,
+        end: header.va,
+    })
+}
+
+/// A decoded `TProcedureSignature`: what a `tkProcedure` type and a record
+/// method carry.
+#[derive(Debug, Clone)]
+pub struct ProcedureSignature<'a> {
+    /// Calling-convention byte (`TCallConv`).
+    pub call_conv: u8,
+    /// Result-type `PPTypeInfo` VA (`0` for a procedure).
+    pub result_type_ref: u64,
+    /// Resolved result-type header, if present and resolvable.
+    pub result_type: Option<TypeHeader<'a>>,
+    /// Ordered parameters.
+    pub params: Vec<SignatureParam<'a>>,
+}
+
+/// Parses a `TProcedureSignature` at file offset `off`: `Flags: u8` (`0xFF`
+/// = no signature, nothing follows), `CC: u8`, `ResultType: ptr`,
+/// `ParamCount: u8`, then per parameter `{Flags: u8, ParamType: ptr, Name:
+/// ShortString}` and, in Delphi, the parameter's `TAttrData`.
+///
+/// Returns the signature (`None` for the explicit "no signature" form) and
+/// the offset just past it; `None` overall when it fails validation.
+///
+/// Source: Delphi 13 `System.TypInfo` (`TProcedureSignature`,
+/// `TProcedureParam`) and `System.Rtti` (`TProcSig.Create`), FPC
+/// `typinfo.pp:357-372` (no attribute data).
+fn parse_procedure_signature<'a>(
+    ctx: &BinaryContext<'a>,
+    off: usize,
+    ptr_size: usize,
+    flavor: VmtFlavor,
+) -> Option<(Option<ProcedureSignature<'a>>, usize)> {
     let data = ctx.data();
-    let flags = *data.get(td)?;
+    let flags = *data.get(off)?;
     if flags == 0xFF {
-        return None; // explicit "no signature"
+        return Some((None, off.checked_add(1)?));
     }
-    let call_conv = *data.get(td.checked_add(1)?)?;
+    let call_conv = *data.get(off.checked_add(1)?)?;
     if call_conv > 11 {
         return None; // not a valid TCallConv → not this layout
     }
-    let result_type_ref = read_ptr(data, td.checked_add(2)?, ptr_size)?;
-    if result_type_ref != 0
-        && TypeHeader::from_pptr(ctx, result_type_ref, ptr_size, flavor).is_none()
-    {
+    let result_type_ref = read_ptr(data, off.checked_add(2)?, ptr_size)?;
+    let result_type = TypeHeader::from_pptr(ctx, result_type_ref, ptr_size, flavor);
+    if result_type_ref != 0 && result_type.is_none() {
         return None;
     }
-    let result_type = TypeHeader::from_pptr(ctx, result_type_ref, ptr_size, flavor);
-    let count_off = td.checked_add(2)?.checked_add(ptr_size)?;
+    let count_off = off.checked_add(2)?.checked_add(ptr_size)?;
     let param_count = *data.get(count_off)? as usize;
     if param_count > MAX_METHOD_PARAMS {
         return None;
     }
-    let mut off = count_off.checked_add(1)?;
+    let mut cursor = count_off.checked_add(1)?;
     let mut params = Vec::with_capacity(param_count);
     for _ in 0..param_count {
-        let pflags = *data.get(off)?;
-        let type_ref = read_ptr(data, off.checked_add(1)?, ptr_size)?;
+        let pflags = *data.get(cursor)?;
+        let type_ref = read_ptr(data, cursor.checked_add(1)?, ptr_size)?;
         let param_type = TypeHeader::from_pptr(ctx, type_ref, ptr_size, flavor);
         if type_ref != 0 && param_type.is_none() {
             return None; // garbage → not a real signature
         }
-        let name_off = off.checked_add(1)?.checked_add(ptr_size)?;
+        let name_off = cursor.checked_add(1)?.checked_add(ptr_size)?;
         let name = read_short_string_at_file(data, name_off)?;
         if !name.is_empty() && !is_plausible_identifier(name) {
             return None;
         }
-        off = name_off.checked_add(1)?.checked_add(name.len())?;
+        cursor = name_off.checked_add(1)?.checked_add(name.len())?;
+        let mut attributes = Vec::new();
+        if flavor == VmtFlavor::Delphi {
+            let (attrs, next) = read_attr_data(data, cursor, ptr_size)?;
+            attributes = attrs;
+            cursor = next;
+        }
         params.push(SignatureParam {
             flags: pflags,
             type_ref,
             param_type,
             name,
+            attributes,
         });
     }
-    Some(ProcedureInfo {
-        header,
-        call_conv,
-        params,
-        result_type_ref,
-        result_type,
-    })
+    Some((
+        Some(ProcedureSignature {
+            call_conv,
+            result_type_ref,
+            result_type,
+            params,
+        }),
+        cursor,
+    ))
 }
 
 impl<'a> StringInfo<'a> {
-    /// Decode a `tkLString` / `tkUString` / `tkWString` record to
-    /// recover the code page.
-    pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+    /// Decodes a `tkLString` / `tkUString` / `tkWString` record, reading the
+    /// code page where `layout` says the record carries one.
+    pub fn from_va(
+        ctx: &BinaryContext<'a>,
+        type_info_va: u64,
+        flavor: VmtFlavor,
+        layout: StringLayout,
+    ) -> Option<Self> {
         let header = TypeHeader::from_va(ctx, type_info_va, flavor)?;
         if !matches!(
             header.kind,
@@ -1639,23 +2235,25 @@ impl<'a> StringInfo<'a> {
         ) {
             return None;
         }
-        let data = ctx.data();
-        let off = ctx
-            .va_to_file(type_info_va)?
-            .checked_add(2)?
-            .checked_add(header.name.len())?;
-        // Pythia records 6 unknown bytes before the code page;
-        // empirically on modern Delphi the bytes are (u16 elem-size,
-        // 4 reserved) but we only need the code page. Read `u16` at
-        // +6. If the slice walks off EOF the type record is
-        // truncated - surface a `None` rather than misreporting code
-        // page 0 (which is valid metadata for legacy ANSI strings,
-        // so 0 must mean "actually 0").
-        let code_page_start = off.checked_add(6)?;
-        let code_page_end = code_page_start.checked_add(2)?;
-        let code_page =
-            u16::from_le_bytes(data.get(code_page_start..code_page_end)?.try_into().ok()?);
-        Some(Self { header, code_page })
+        let start = ctx.va_to_file(type_info_va)?;
+        let name_end = start.checked_add(2)?.checked_add(header.name.len())?;
+        // The code page is the whole type data of a code-paged ANSI string
+        // and sits right after the name. A record that walks off EOF is
+        // truncated: surface `None` rather than misreport code page 0, which
+        // is valid metadata ("the default ANSI code page").
+        let (code_page, end) = match (layout, header.kind) {
+            (StringLayout::CodePaged, TypeKind::LString) => {
+                let end = name_end.checked_add(2)?;
+                let bytes = ctx.data().get(name_end..end)?;
+                (Some(u16::from_le_bytes(bytes.try_into().ok()?)), end)
+            }
+            _ => (None, name_end),
+        };
+        Some(Self {
+            header,
+            code_page,
+            end: va_at(type_info_va, start, end)?,
+        })
     }
 }
 
@@ -1671,20 +2269,19 @@ impl<'a> RecordInfo<'a> {
         let data = ctx.data();
         let file_off = ctx.va_to_file(type_info_va)?;
         let kind_byte = *data.get(file_off)?;
-        if kind_byte
-            != match flavor {
-                VmtFlavor::Delphi => 14, // Delphi tkRecord
-                VmtFlavor::Fpc => 13,    // FPC tkRecord
-            }
-        {
-            return None;
-        }
+        // Delphi tkRecord (14) or tkMRecord (22, a managed record, same
+        // layout); FPC tkRecord (13).
+        let kind = match (flavor, kind_byte) {
+            (VmtFlavor::Delphi, 14) | (VmtFlavor::Fpc, 13) => TypeKind::Record,
+            (VmtFlavor::Delphi, 22) => TypeKind::MRecord,
+            _ => return None,
+        };
         let name_off = file_off.checked_add(1)?;
         let name = read_short_string_at_file(data, name_off)?;
         let header = TypeHeader {
             va: type_info_va,
             kind_byte,
-            kind: TypeKind::Record,
+            kind,
             name,
         };
         let ptr_size = ctx.pointer_size()?;
@@ -1718,53 +2315,96 @@ impl<'a> RecordInfo<'a> {
         // pre-2010 Delphi, FPC, and the synthetic (empty-name) init-table
         // record never produce garbage: any implausible field discards the
         // whole list (returns empty rather than partial).
-        let fields = if flavor == VmtFlavor::Delphi && !name.is_empty() {
-            parse_record_fields(ctx, off, ptr_size, flavor).unwrap_or_default()
+        let tail = if flavor == VmtFlavor::Delphi && !name.is_empty() {
+            parse_record_tail(ctx, off, ptr_size, flavor)
         } else {
-            Vec::new()
+            None
+        };
+        let (fields, operators, attributes, methods, end) = match tail {
+            Some(t) => (t.fields, t.operators, t.attributes, t.methods, t.end),
+            None => (Vec::new(), None, Vec::new(), Vec::new(), off),
         };
         Some(Self {
             header,
             record_size,
             managed_fields,
             fields,
+            operators,
+            attributes,
+            methods,
+            end: va_at(type_info_va, file_off, end)?,
         })
     }
 }
 
-/// Parse the Delphi 2010+ extended record field table that follows the
-/// managed-field section: `NumOps: u8`, `RecOps[NumOps]: ptr`,
-/// `RecFldCnt: u32`, then `RecFldCnt` × `{ TypeRef: ptr; FldOffset: u32;
-/// Flags: u8; Name: ShortString; AttrData: u16-length }`.
+/// The Delphi 2010+ part of a record's type data after its managed fields.
+struct RecordTail<'a> {
+    operators: Option<RecordOperators>,
+    fields: Vec<RecordField<'a>>,
+    attributes: Vec<AttributeEntry<'a>>,
+    methods: Vec<RecordMethod<'a>>,
+    /// The file offset just past the tail.
+    end: usize,
+}
+
+/// Parses the Delphi 2010+ record tail that follows the managed fields:
+/// `NumOps: u8`, `RecOps[NumOps]: ptr` (a [`RecordOperators`] table),
+/// `RecFldCnt: i32`, the fields
+/// (`TypeRef: ptr; FldOffset: NativeInt; Flags: u8; Name: ShortString;
+/// AttrData`), the record's `AttrData`, `RecMethCnt: u16` and the methods
+/// (`Flags: u8; Code: ptr; Name: ShortString; Sig: TProcedureSignature;
+/// AttrData`).
 ///
-/// Source: `reference/DelphiHelper/.../DelphiClass_TypeInfo_tkRecord.py`
-/// (`__CreateRecordTypeField`). Returns `None` (→ empty) if anything looks
-/// implausible, since the host record may predate this layout.
-fn parse_record_fields<'a>(
+/// Source: Delphi 13 `System.TypInfo` (`tkRecord` variant of `TTypeData`,
+/// `TRecordTypeField`, `TRecordTypeMethod`) and `System.Rtti`
+/// (`TRttiRecordType.GetDeclaredFields` / `GetDeclaredMethods`). Returns
+/// `None` if anything looks implausible, since the host record may predate
+/// this layout.
+fn parse_record_tail<'a>(
     ctx: &BinaryContext<'a>,
     start_off: usize,
     ptr_size: usize,
     flavor: VmtFlavor,
-) -> Option<Vec<RecordField<'a>>> {
+) -> Option<RecordTail<'a>> {
     let data = ctx.data();
     let num_ops = *data.get(start_off)? as usize;
-    if num_ops > 16 {
+    if num_ops > 4 {
         return None; // not the extended layout
     }
-    let mut off = start_off
-        .checked_add(1)?
-        .checked_add(num_ops.checked_mul(ptr_size)?)?;
+    let mut off = start_off.checked_add(1)?;
+    let mut slots = [0u64; 4];
+    for slot in slots.iter_mut().take(num_ops) {
+        *slot = read_ptr(data, off, ptr_size)?;
+        off = off.checked_add(ptr_size)?;
+    }
+    let [flags, initialize, finalize, assign] = slots;
+    let code = |va: u64| -> Option<Option<u64>> {
+        match va {
+            0 => Some(None),
+            va if ctx.is_code_va(va) => Some(Some(va)),
+            _ => None,
+        }
+    };
+    let operators = if num_ops == 0 {
+        None
+    } else {
+        Some(RecordOperators {
+            flags,
+            initialize: code(initialize)?,
+            finalize: code(finalize)?,
+            assign: code(assign)?,
+        })
+    };
     let count = read_u32(data, off)? as usize;
     off = off.checked_add(4)?;
-    if count == 0 || count > MAX_RECORD_FIELDS {
+    if count > MAX_RECORD_FIELDS {
         return None;
     }
-    let mut fields = Vec::with_capacity(count.min(MAX_RECORD_FIELDS));
+    let mut fields = Vec::with_capacity(count);
     for _ in 0..count {
         let type_ref = read_ptr(data, off, ptr_size)?;
-        // `FldOffset` is pointer-sized (`MakeCustomWord(addr+wordSize,
-        // wordSize)` in DelphiHelper), not a fixed `u32` - so on 64-bit the
-        // flags / name follow at `2 * ptr_size`, not `ptr_size + 4`.
+        // `FldOffset` is a NativeInt (`TManagedField`), so on 64-bit the
+        // flags and name follow at `2 * ptr_size`.
         let offset = read_ptr(data, off.checked_add(ptr_size)?, ptr_size)? as u32;
         let flags_off = off.checked_add(ptr_size)?.checked_add(ptr_size)?;
         let flags = *data.get(flags_off)?;
@@ -1781,17 +2421,55 @@ fn parse_record_fields<'a>(
             return None;
         }
         let attr_off = name_off.checked_add(1)?.checked_add(fname.len())?;
-        let attr_len = read_u16(data, attr_off)? as usize;
-        off = attr_off.checked_add(attr_len.max(2))?;
+        let (attributes, next) = read_attr_data(data, attr_off, ptr_size)?;
+        off = next;
         fields.push(RecordField {
             type_ref,
             field_type,
             offset,
             flags,
             name: fname,
+            attributes,
         });
     }
-    Some(fields)
+    let (attributes, next) = read_attr_data(data, off, ptr_size)?;
+    off = next;
+    let method_count = usize::from(read_u16(data, off)?);
+    off = off.checked_add(2)?;
+    if method_count > MAX_METHODS_PER_RECORD {
+        return None;
+    }
+    let mut methods = Vec::with_capacity(method_count);
+    for _ in 0..method_count {
+        let flags = *data.get(off)?;
+        let code_va = read_ptr(data, off.checked_add(1)?, ptr_size)?;
+        if !ctx.is_code_va(code_va) {
+            return None;
+        }
+        let name_off = off.checked_add(1)?.checked_add(ptr_size)?;
+        let name = read_short_string_at_file(data, name_off)?;
+        if !is_plausible_identifier(name) {
+            return None;
+        }
+        let sig_off = name_off.checked_add(1)?.checked_add(name.len())?;
+        let (signature, after_sig) = parse_procedure_signature(ctx, sig_off, ptr_size, flavor)?;
+        let (method_attributes, next) = read_attr_data(data, after_sig, ptr_size)?;
+        off = next;
+        methods.push(RecordMethod {
+            flags,
+            code_va,
+            name,
+            signature,
+            attributes: method_attributes,
+        });
+    }
+    Some(RecordTail {
+        operators,
+        fields,
+        attributes,
+        methods,
+        end: off,
+    })
 }
 
 /// Sweep the binary's read-only data for every FPC `tkInterface` record
@@ -1807,8 +2485,8 @@ fn parse_record_fields<'a>(
 ///
 /// False-positive guard: each candidate is fully decoded and the GUID
 /// must be non-zero before it's accepted.
-pub fn scan_fpc_tkinterface_index(ctx: &BinaryContext<'_>) -> std::collections::HashMap<Guid, u64> {
-    let mut idx = std::collections::HashMap::new();
+pub fn scan_fpc_tkinterface_index(ctx: &BinaryContext<'_>) -> HashMap<Guid, u64> {
+    let mut idx = HashMap::new();
     let Some(_) = ctx.pointer_size() else {
         return idx;
     };
@@ -1842,7 +2520,7 @@ pub fn scan_fpc_tkinterface_index(ctx: &BinaryContext<'_>) -> std::collections::
 /// Header of an FPC `TIntfMethodTable`. The body is a sequence of
 /// [`IntfMethodEntry`] records reachable via [`Self::entries`].
 ///
-/// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:429-443`.
+/// Source: FPC `rtl/objpas/typinfo.pp:429-443`.
 #[derive(Debug, Clone)]
 pub struct IntfMethodTable<'a> {
     method_count: u16,
@@ -2011,7 +2689,7 @@ impl<'a> IntfMethodTable<'a> {
 
 /// One entry in an FPC `tkInterface` method table.
 ///
-/// Source: `reference/fpc-source/rtl/objpas/typinfo.pp:398-427`
+/// Source: FPC `rtl/objpas/typinfo.pp:398-427`
 /// (`TIntfMethodEntry`). We don't decode parameters here - the entry
 /// is variable-length, and we bail past entries that declare any
 /// parameter so the simple shape stays clean.
@@ -2111,7 +2789,7 @@ mod tests {
     use super::*;
 
     /// Lock every documented Delphi TTypeKind byte against
-    /// `reference/pythia/pythia/core/structures.py:11-34`.
+    /// pythia `pythia/core/structures.py:11-34`.
     /// If a future refactor renumbers or drops a variant, this test
     /// flags it before silent misdecoding ships.
     #[test]
@@ -2152,7 +2830,7 @@ mod tests {
     }
 
     /// Lock the FPC TTypeKind ordering from
-    /// `reference/fpc-source/rtl/inc/rttih.inc:29-34`. FPC reorders the
+    /// FPC `rtl/inc/rttih.inc:29-34`. FPC reorders the
     /// enum vs Delphi (e.g. tkClass is 15 in FPC vs 7 in Delphi); the
     /// table below is the authoritative byte → kind translation we use
     /// when classifying FPC RTTI records.
