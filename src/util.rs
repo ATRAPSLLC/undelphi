@@ -8,9 +8,11 @@
 //! wrap-around in release builds. The result is a clean `None`
 //! propagated up to the caller.
 
+use std::str;
+
 use crate::formats::BinaryContext;
 
-/// Read a little-endian pointer of `size` bytes (4 or 8) at a file offset.
+/// Reads a little-endian pointer of `size` bytes (4 or 8) at a file offset.
 pub fn read_ptr(bytes: &[u8], off: usize, size: usize) -> Option<u64> {
     match size {
         4 => {
@@ -27,7 +29,7 @@ pub fn read_ptr(bytes: &[u8], off: usize, size: usize) -> Option<u64> {
     }
 }
 
-/// Read an unsigned little-endian `u16` at a file offset.
+/// Reads an unsigned little-endian `u16` at a file offset.
 #[inline]
 pub fn read_u16(bytes: &[u8], off: usize) -> Option<u16> {
     let end = off.checked_add(2)?;
@@ -35,7 +37,7 @@ pub fn read_u16(bytes: &[u8], off: usize) -> Option<u16> {
     Some(u16::from_le_bytes(slice.try_into().ok()?))
 }
 
-/// Read an unsigned little-endian `u32` at a file offset.
+/// Reads an unsigned little-endian `u32` at a file offset.
 #[inline]
 pub fn read_u32(bytes: &[u8], off: usize) -> Option<u32> {
     let end = off.checked_add(4)?;
@@ -43,7 +45,7 @@ pub fn read_u32(bytes: &[u8], off: usize) -> Option<u32> {
     Some(u32::from_le_bytes(slice.try_into().ok()?))
 }
 
-/// Resolve `va` to a file offset and read a short-string's body.
+/// Resolves `va` to a file offset and reads a short-string's body.
 ///
 /// Returns the bytes of the string, excluding the length-byte prefix.
 pub fn read_short_string_at_va<'a>(ctx: &BinaryContext<'a>, va: u64) -> Option<&'a [u8]> {
@@ -54,7 +56,7 @@ pub fn read_short_string_at_va<'a>(ctx: &BinaryContext<'a>, va: u64) -> Option<&
     read_short_string_at_file(ctx.data(), off)
 }
 
-/// Read a short-string starting at `off` within `data`. Returns the body
+/// Reads a short-string starting at `off` within `data`. Returns the body
 /// slice (no length byte).
 pub fn read_short_string_at_file(data: &[u8], off: usize) -> Option<&[u8]> {
     let len = *data.get(off)? as usize;
@@ -63,7 +65,24 @@ pub fn read_short_string_at_file(data: &[u8], off: usize) -> Option<&[u8]> {
     data.get(body_start..body_end)
 }
 
-/// Read a pointer at `va`, then interpret the result as another VA. Used by
+/// Punctuation a qualified or generic type name may carry beyond identifier
+/// characters (`System.Generics.Collections.TList<System.Integer>`,
+/// compiler-made `@` names).
+pub const GENERIC_NAME_CHARS: [char; 8] = ['.', '<', '>', ',', ':', '&', '@', ' '];
+
+/// Returns `name` as `&str` when it is a plausible identifier: non-empty
+/// UTF-8 (Delphi 2009 and later store identifiers as UTF-8) whose
+/// characters are letters, digits, `_` or one of `extra`.
+pub fn as_identifier<'a>(name: &'a [u8], extra: &[char]) -> Option<&'a str> {
+    let name = str::from_utf8(name).ok()?;
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || extra.contains(&c)))
+    .then_some(name)
+}
+
+/// Reads a pointer at `va`, then interprets the result as another VA. Used by
 /// FPC's double-indirection fields (PShortString, PPGuid, etc.).
 pub fn deref_va(ctx: &BinaryContext<'_>, va: u64, ptr_size: usize) -> Option<u64> {
     if va == 0 {
@@ -150,6 +169,24 @@ fn extended_bits(mantissa: u64, exponent: i32) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identifiers_accept_utf8_letters() {
+        assert_eq!(as_identifier(b"TForm1", &[]), Some("TForm1"));
+        assert_eq!(
+            as_identifier("TÜbersicht".as_bytes(), &[]),
+            Some("TÜbersicht")
+        );
+        assert_eq!(as_identifier("Größe_2".as_bytes(), &[]), Some("Größe_2"));
+        assert_eq!(as_identifier(b"Vcl.Forms", &['.']), Some("Vcl.Forms"));
+        assert_eq!(as_identifier(b"Vcl.Forms", &[]), None);
+        assert_eq!(as_identifier(b"", &[]), None);
+        assert_eq!(as_identifier(b"has space", &[]), None);
+        // Latin-1, not UTF-8.
+        assert_eq!(as_identifier(b"Gr\xf6\xdfe", &[]), None);
+        // Valid UTF-8 but not a letter.
+        assert_eq!(as_identifier("A\u{2028}".as_bytes(), &[]), None);
+    }
 
     /// The extended encoding of `mantissa * 2^(exponent - 16383 - 63)`.
     fn ext(negative: bool, exponent: u16, mantissa: u64) -> [u8; 10] {

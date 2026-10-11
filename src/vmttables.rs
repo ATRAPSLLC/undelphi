@@ -72,12 +72,12 @@ use crate::{
     formats::BinaryContext,
     limits::{MAX_AUTO_ENTRIES_PER_CLASS, MAX_AUTO_PARAMS, MAX_DYNAMIC_SLOTS_PER_CLASS},
     rtti::RecordInfo,
-    util::{read_ptr, read_short_string_at_file, read_u16, read_u32},
+    util::{as_identifier, read_ptr, read_short_string_at_file, read_u16, read_u32},
     vmt::{Vmt, VmtFlavor},
 };
 
 impl<'a> RecordInfo<'a> {
-    /// Decode the class's init (managed-fields) table - the
+    /// Decodes the class's init (managed-fields) table - the
     /// `vmtInitTable` synthetic record that enumerates instance
     /// offsets the runtime needs to refcount-manage. Returns `None`
     /// when `vmtInitTable` is null or the record can't be decoded.
@@ -118,7 +118,7 @@ impl DynamicSlot {
         Some(vmt.dynamic_table..vmt.dynamic_table.checked_add(len)?)
     }
 
-    /// Decode the dynamic-dispatch table for `vmt`. Returns an empty
+    /// Decodes the dynamic-dispatch table for `vmt`. Returns an empty
     /// vector when `vmtDynamicTable` is null or the layout walk
     /// bails.
     pub fn iter(ctx: &BinaryContext<'_>, vmt: &Vmt<'_>) -> Vec<Self> {
@@ -196,7 +196,8 @@ pub struct AutoEntry<'a> {
 }
 
 impl<'a> AutoEntry<'a> {
-    /// Member name as `&str`, lossily decoded.
+    /// Member name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -232,7 +233,7 @@ impl<'a> AutoEntry<'a> {
         self.flags & 0x8 != 0
     }
 
-    /// Decode the automation table of `vmt`. Returns an empty vector when
+    /// Decodes the automation table of `vmt`. Returns an empty vector when
     /// `vmtAutoTable` is null, the binary is not a Delphi image, or the
     /// table is malformed.
     pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
@@ -245,8 +246,7 @@ impl<'a> AutoEntry<'a> {
     ///
     /// `None` when [`Self::iter`] finds no table.
     pub fn table_extent(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Range<u64>> {
-        let count = auto_entry_count(ctx, vmt)?;
-        read_auto_table(ctx, vmt)?;
+        let count = read_auto_table(ctx, vmt)?.len();
         let size = auto_entry_size(usize::from(vmt.pointer_size))?;
         let len = u64::try_from(count.checked_mul(size)?.checked_add(4)?).ok()?;
         Some(vmt.auto_table..vmt.auto_table.checked_add(len)?)
@@ -286,9 +286,7 @@ fn read_auto_table<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Vec<Aut
             return None;
         }
         let name = read_short_string_at_file(data, ctx.va_to_file(name_va)?)?;
-        if name.is_empty() || !name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_') {
-            return None;
-        }
+        as_identifier(name, &[])?;
         let params_off = ctx.va_to_file(params_va)?;
         let result_type = *data.get(params_off)?;
         let param_count = usize::from(*data.get(params_off.checked_add(1)?)?);

@@ -187,18 +187,14 @@ fn class_fields_of_every_visibility() {
 
         // [Mark] FCount.
         let fcount = &bin.extended_fields(widget)[0];
-        let attrs: Vec<_> = fcount
-            .attributes(ptr as usize)
-            .iter()
-            .map(|a| attr(&bin, a))
-            .collect();
+        let attrs: Vec<_> = fcount.attributes.iter().map(|a| attr(&bin, a)).collect();
         assert_eq!(attrs, vec![mark()], "{platform}");
     }
 }
 
 #[test]
 fn class_attributes_with_arguments() {
-    for (platform, ptr) in BUILDS {
+    for (platform, _) in BUILDS {
         let data = sample(platform, "modernbin.exe");
         let bin = DelphiBinary::parse(&data).expect("parse");
         let map = map(platform);
@@ -222,10 +218,7 @@ fn class_attributes_with_arguments() {
                 (
                     p.name().to_string(),
                     p.visibility,
-                    p.attributes(ptr as usize)
-                        .iter()
-                        .map(|a| attr(&bin, a))
-                        .collect(),
+                    p.attributes.iter().map(|a| attr(&bin, a)).collect(),
                 )
             })
             .collect();
@@ -263,8 +256,8 @@ fn indexed_property_and_its_accessors() {
         assert!(items.is_default());
         assert_eq!(items.visibility(), Visibility::Public);
         let methods = bin.extended_methods(widget);
-        let getter = &methods[usize::from(items.read_index.unwrap())];
-        let setter = &methods[usize::from(items.write_index.unwrap())];
+        let getter = items.getter(&methods).unwrap();
+        let setter = items.setter(&methods).unwrap();
         assert_eq!(
             (getter.name(), getter.code_va),
             ("GetItem", map["modernrt.TWidget.GetItem"])

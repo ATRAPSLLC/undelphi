@@ -247,6 +247,8 @@ pub struct Locator<'a> {
     /// Byte-less parts placed by a relocation, whose relocations are still
     /// to follow.
     unchecked: VecDeque<(Key, u64)>,
+    /// Size of the image's thread-local storage template, when it has one.
+    tls_size: Option<u64>,
 }
 
 impl<'a> Locator<'a> {
@@ -266,6 +268,15 @@ impl<'a> Locator<'a> {
             votes: HashMap::new(),
             queue: VecDeque::new(),
             unchecked: VecDeque::new(),
+            tls_size: ctx
+                .pe()
+                .and_then(|pe| pe.tls_data.as_ref())
+                .and_then(|tls| {
+                    let dir = &tls.image_tls_directory;
+                    dir.end_address_of_raw_data
+                        .checked_sub(dir.start_address_of_raw_data)?
+                        .checked_add(u64::from(dir.size_of_zero_fill))
+                }),
         }
     }
 
@@ -607,10 +618,12 @@ impl<'a> Locator<'a> {
             };
             let address = self.target_address(loaded, &f, va, range.start, kind);
             // An address outside the image is a misread (an import cell
-            // holding another module's address, say), never a placement.
+            // holding another module's address, say), never a placement;
+            // so is an offset past the thread-local template, whose end is
+            // where `TlsLast` lies.
             if let Some(address) = address.filter(|a| match a {
                 Address::Va(at) => self.ctx.is_image_va(*at),
-                Address::Thread(_) => true,
+                Address::Thread(offset) => self.tls_size.is_none_or(|size| *offset <= size),
             }) {
                 out.push(Target {
                     key: target,
@@ -1182,10 +1195,33 @@ impl<'a> Locator<'a> {
                 sections.entry(section).or_default().push((va, key));
             }
         }
-        for vars in sections.values_mut() {
+        let mut runs: HashMap<(usize, usize), UnitRun> = HashMap::new();
+        for (&section, vars) in &mut sections {
             vars.sort_unstable();
+            for &(va, (unit, decl)) in vars.iter() {
+                let run = runs.entry((section, unit)).or_default();
+                run.at.push(va);
+                run.max_decl.push(decl);
+                run.min_decl.push(decl);
+            }
         }
-        Layout { sections, ranges }
+        for run in runs.values_mut() {
+            let mut max = 0;
+            for d in &mut run.max_decl {
+                max = max.max(*d);
+                *d = max;
+            }
+            let mut min = DeclId::MAX;
+            for d in run.min_decl.iter_mut().rev() {
+                min = min.min(*d);
+                *d = min;
+            }
+        }
+        Layout {
+            sections,
+            runs,
+            ranges,
+        }
     }
 
     /// The `(start, end)` VA range of each PE section, by section index.
@@ -1227,8 +1263,21 @@ struct Owner {
 struct Layout {
     /// Each section's placed variables in address order.
     sections: HashMap<usize, Vec<(u64, Key)>>,
+    /// Each unit's placed variables, by section and unit.
+    runs: HashMap<(usize, usize), UnitRun>,
     /// Each section's VA range.
     ranges: Vec<(u64, u64)>,
+}
+
+/// One unit's placed variables in one section, for [`Layout::fits`].
+#[derive(Debug, Default)]
+struct UnitRun {
+    /// Their addresses, in order.
+    at: Vec<u64>,
+    /// At `i`, the highest declaration among the first `i + 1`.
+    max_decl: Vec<DeclId>,
+    /// At `i`, the lowest declaration from `i` on.
+    min_decl: Vec<DeclId>,
 }
 
 impl Layout {
@@ -1247,32 +1296,38 @@ impl Layout {
             return Some(false);
         };
         let (unit, decl) = key;
-        let mut lo = None;
-        let mut hi = None;
-        for &(at, (u, d)) in vars {
-            if at == va {
-                return None;
-            }
-            if u == unit {
-                if (d < decl) != (at < va) {
-                    return None;
-                }
-                if at < va {
-                    lo = Some(at);
-                } else if hi.is_none() {
-                    hi = Some(at);
-                }
-            }
-        }
-        let from = lo.unwrap_or(va);
-        let to = hi.unwrap_or(va);
-        if vars
-            .iter()
-            .any(|&(at, (u, _))| u != unit && at > from && at < to)
-        {
+        let split = vars.partition_point(|&(at, _)| at < va);
+        if vars.get(split).is_some_and(|&(at, _)| at == va) {
             return None;
         }
-        let split = vars.partition_point(|&(at, _)| at < va);
+        // The unit's nearest placed variables below and above `va`. Those
+        // below must all be declared before it, those above none.
+        let (lo, hi) = match self.runs.get(&(section, unit)) {
+            Some(run) => {
+                let i = run.at.partition_point(|&at| at < va);
+                let below = i.checked_sub(1);
+                if below
+                    .and_then(|j| run.max_decl.get(j))
+                    .is_some_and(|&d| d >= decl)
+                    || run.min_decl.get(i).is_some_and(|&d| d < decl)
+                {
+                    return None;
+                }
+                (
+                    below.and_then(|j| run.at.get(j)).copied(),
+                    run.at.get(i).copied(),
+                )
+            }
+            None => (None, None),
+        };
+        // Nothing lies between them but `va`: any variable there belongs
+        // to another unit, inside this unit's run.
+        let from = lo.unwrap_or(va);
+        let to = hi.unwrap_or(va);
+        let after_from = vars.partition_point(|&(at, _)| at <= from);
+        if vars.get(after_from).is_some_and(|&(at, _)| at < to) {
+            return None;
+        }
         let below = split.checked_sub(1).and_then(|i| vars.get(i));
         let above = vars.get(split);
         if matches!((below, above), (Some(&(_, (a, _))), Some(&(_, (b, _)))) if a == b && a != unit)
@@ -1364,10 +1419,10 @@ pub struct Module<'s> {
 /// ([`Locator::name_init_table`]), placing what their routines reach.
 ///
 /// The candidates are the contained units, those a Delphi 2010+ type table
-/// lists (the units with RTTI types), those the classes name, and everything they reach through uses
-/// from `SysInit` and `System`. They are complete - every slot's owner
-/// among them - when the module is self-contained and the library has
-/// every contained unit.
+/// lists (the units with RTTI types), those the classes name, and
+/// everything they reach through uses from `SysInit` and `System`. They
+/// are complete - every slot's owner among them - when the module is
+/// self-contained and the library has every contained unit.
 #[must_use]
 pub fn locate(
     library: &Library,

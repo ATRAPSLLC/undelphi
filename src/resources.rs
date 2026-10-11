@@ -30,7 +30,7 @@ pub struct ResourceBody<'a> {
     pub language: u32,
 }
 
-/// Look up an RT_RCDATA resource by its ASCII name (case-insensitive).
+/// Looks up an RT_RCDATA resource by its ASCII name (case-insensitive).
 ///
 /// Returns `None` if the binary has no resource section, no `RT_RCDATA`
 /// branch, or no entry matching `name`. Picks the neutral-language entry
@@ -66,7 +66,7 @@ pub fn find_rcdata<'a>(ctx: &BinaryContext<'a>, name: &str) -> Option<ResourceBo
     resolve_data(ctx, &data_entry, language)
 }
 
-/// Enumerate every named RT_RCDATA entry in the binary, pairing its name
+/// Enumerates every named RT_RCDATA entry in the binary, pairing its name
 /// with the resource body. Used by the DFM finder (TPF0 streams) in later
 /// iterations.
 pub fn iter_rcdata_named<'a>(ctx: &BinaryContext<'a>) -> Vec<(String, ResourceBody<'a>)> {
@@ -116,7 +116,7 @@ pub fn iter_rcdata_named<'a>(ctx: &BinaryContext<'a>) -> Vec<(String, ResourceBo
     out
 }
 
-/// Decode every string of the PE string table (`RT_STRING`) as
+/// Decodes every string of the PE string table (`RT_STRING`) as
 /// `(identifier, text)`, in identifier order.
 ///
 /// Win32 stores strings in blocks of sixteen: block `n` (its numeric
@@ -196,7 +196,7 @@ pub fn string_table(ctx: &BinaryContext<'_>) -> Vec<(u32, String)> {
     out
 }
 
-/// Iterate the entries of a sub-directory at `dir_off` within the `.rsrc`
+/// Iterates the entries of a sub-directory at `dir_off` within the `.rsrc`
 /// section bytes. Uses goblin's `ImageResourceDirectory` to parse the
 /// 16-byte header, then its `next_iter` to produce the entry iterator.
 fn iter_subdir_entries<'a>(
@@ -208,7 +208,7 @@ fn iter_subdir_entries<'a>(
     dir.next_iter(off, rsrc_bytes)
 }
 
-/// Pick a language-level leaf. Prefer LANG_NEUTRAL (`0`); fall back to first.
+/// Picks a language-level leaf. Prefer LANG_NEUTRAL (`0`); fall back to first.
 /// Returns `(language, data_entry)` where `data_entry` is parsed via goblin.
 fn pick_language(rsrc_bytes: &[u8], dir_off: usize) -> Option<(u32, ResourceDataEntry)> {
     let mut fallback: Option<(u32, ResourceEntry)> = None;
@@ -234,7 +234,7 @@ fn pick_language(rsrc_bytes: &[u8], dir_off: usize) -> Option<(u32, ResourceData
     Some((lang, de))
 }
 
-/// Decode a UTF-16LE length-prefixed name string at `off` within `rsrc_bytes`.
+/// Decodes a UTF-16LE length-prefixed name string at `off` within `rsrc_bytes`.
 /// Allocates a `String` for the comparison path; string-name lookup is a
 /// cold path so the allocation is acceptable.
 fn read_name(rsrc_bytes: &[u8], off: usize) -> Option<String> {
@@ -249,7 +249,7 @@ fn read_name(rsrc_bytes: &[u8], off: usize) -> Option<String> {
     Some(char::decode_utf16(iter).filter_map(Result::ok).collect())
 }
 
-/// Resolve an RVA-based `ResourceDataEntry` into a slice of the full binary.
+/// Resolves an RVA-based `ResourceDataEntry` into a slice of the full binary.
 fn resolve_data<'a>(
     ctx: &BinaryContext<'a>,
     de: &ResourceDataEntry,

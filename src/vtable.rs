@@ -63,7 +63,7 @@ pub struct VirtualMethodEntry {
 }
 
 impl VirtualMethodEntry {
-    /// Walk the virtual-method array following `vmt`.
+    /// Walks the virtual-method array following `vmt`.
     ///
     /// `upper_bound_va` is the first VA at which another class's VMT
     /// begins; slots at or beyond that boundary aren't read. Pass
@@ -135,7 +135,7 @@ impl VirtualMethodEntry {
         out
     }
 
-    /// Compute the tightest VA upper-bound for a class's
+    /// Computes the tightest VA upper-bound for a class's
     /// virtual-method array against `set` - the next class's VMT base
     /// (or the `self_ptr` that follows this one), or the class's own name
     /// or tables when the compiler placed them right after the array (a
@@ -242,7 +242,7 @@ const FPC_OBJECT_VIRTUALS: [&str; 13] = [
 ];
 
 impl StandardVirtual {
-    /// Read the `TObject` virtual slots of `vmt`.
+    /// Reads the `TObject` virtual slots of `vmt`.
     ///
     /// Delphi: every pointer-sized code slot between `vmtParent` and the
     /// class pointer, nearest first: the C++ ABI slots where the header has

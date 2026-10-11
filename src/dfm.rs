@@ -120,7 +120,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    /// Decode a raw byte, returning `Unknown` for unrecognised values.
+    /// Decodes a raw byte, returning `Unknown` for unrecognised values.
     pub fn from_u8(b: u8) -> Self {
         match b {
             0 => ValueType::Null,
@@ -299,7 +299,8 @@ pub struct DfmProperty<'a> {
 }
 
 impl<'a> DfmProperty<'a> {
-    /// Property name (e.g. `Caption`) as `&str`, lossily decoded.
+    /// Property name (e.g. `Caption`) as `&str`: UTF-8, as Delphi 2009 and later store names,
+    /// or `"<non-ascii>"` when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -454,7 +455,7 @@ impl<'a> Iterator for DfmWalk<'a> {
 }
 
 impl<'a> DfmObject<'a> {
-    /// Parse a TPF0 / TPF1 stream.
+    /// Parses a TPF0 / TPF1 stream.
     ///
     /// Returns the root object when the stream parses cleanly.
     /// Returns `None` for malformed streams (truncation, unexpected
@@ -490,7 +491,7 @@ impl<'a> DfmObject<'a> {
     }
 }
 
-/// Scan `data` for `TPF0` / `TPF1` magic and return every offset at which a
+/// Scans `data` for `TPF0` / `TPF1` magic and returns every offset at which a
 /// complete form stream re-parses, paired with its parsed root object.
 ///
 /// This is the engine behind [`crate::DelphiBinary::forms`]'s last-resort
@@ -592,7 +593,7 @@ impl<'a> Cursor<'a> {
         self.read_u64().map(f64::from_bits)
     }
 
-    /// Read a ShortString (byte length + body). Returns an empty slice for
+    /// Reads a ShortString (byte length + body). Returns an empty slice for
     /// length 0.
     fn read_short_string(&mut self) -> Option<&'a [u8]> {
         let len = self.read_u8()? as usize;
@@ -1169,7 +1170,7 @@ mod tests {
         assert_eq!(ValueType::from_u8(255), ValueType::Unknown);
     }
 
-    /// Lock the TPF0 `TValueType` byte ordering against the authoritative
+    /// Locks the TPF0 `TValueType` byte ordering against the authoritative
     /// FPC declaration in
     /// FPC `rtl/objpas/classes/classesh.inc:1690-1693`.
     /// A drift here would silently misdecode every form stream - every

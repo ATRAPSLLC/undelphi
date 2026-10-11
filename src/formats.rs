@@ -199,7 +199,7 @@ impl<'a> fmt::Debug for BinaryContext<'a> {
 }
 
 impl<'a> BinaryContext<'a> {
-    /// Parse a binary, populating format, section, and segment tables.
+    /// Parses a binary, populating format, section, and segment tables.
     ///
     /// Always succeeds - returns an empty context for garbage input so that
     /// heuristic scans can still run.
@@ -511,13 +511,13 @@ impl<'a> BinaryContext<'a> {
         &self.sections
     }
 
-    /// Slice the binary covered by a [`SectionRange`].
+    /// Slices the binary covered by a [`SectionRange`].
     pub fn section_data(&self, range: &SectionRange) -> Option<&'a [u8]> {
         self.data
             .get(range.offset..range.offset.checked_add(range.size)?)
     }
 
-    /// Translate a virtual address to a file offset.
+    /// Translates a virtual address to a file offset.
     ///
     /// `segments` is sorted by `segment_va` at construction time, so this is
     /// O(log n). Hot path - called once per pointer dereference during VMT /
@@ -548,7 +548,7 @@ impl<'a> BinaryContext<'a> {
         self.pe.as_ref().map(|pe| pe.image_base)
     }
 
-    /// Convert an absolute VA to a PE RVA using the parsed image base.
+    /// Converts an absolute VA to a PE RVA using the parsed image base.
     /// Returns `None` when this is not a PE image or subtraction underflows.
     #[inline]
     pub fn va_to_rva(&self, va: u64) -> Option<u64> {

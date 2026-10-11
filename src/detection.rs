@@ -257,7 +257,7 @@ pub struct CompilerInfo<'a> {
 }
 
 impl<'a> CompilerInfo<'a> {
-    /// Translate the raw compiler version string into a marketing release
+    /// Translates the raw compiler version string into a marketing release
     /// name, when recognised.
     ///
     /// Delphi compiler version → RAD Studio release mapping:
@@ -344,7 +344,7 @@ const FPC_PREFIX: &[u8] = b"FPC ";
 /// Delphi / C++Builder build-string prefix: `"Embarcadero "`.
 const EMBARCADERO_PREFIX: &[u8] = b"Embarcadero ";
 
-/// Scan the binary for a compiler build-string.
+/// Scans the binary for a compiler build-string.
 ///
 /// Walks the whole byte buffer looking for either the Embarcadero or the FPC
 /// marker. The first complete match wins. Returns `None` if neither marker is
@@ -360,7 +360,7 @@ pub fn scan_build_string<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     find_fpc(data)
 }
 
-/// Locate an `Embarcadero Delphi/C++Builder for <target> compiler version <ver> (<build>)` line.
+/// Locates an `Embarcadero Delphi/C++Builder for <target> compiler version <ver> (<build>)` line.
 fn find_embarcadero<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     // The RTL also carries other "Embarcadero ..." strings (its copyright
     // banner, "Embarcadero Run Time Library", precedes the build string in
@@ -420,7 +420,7 @@ fn find_embarcadero<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     })
 }
 
-/// Decode the `for <target>` portion of an Embarcadero build-string.
+/// Decodes the `for <target>` portion of an Embarcadero build-string.
 fn parse_embarcadero_target(after_compiler_name: &str) -> (TargetOs, TargetArch) {
     let Some(rest) = after_compiler_name.strip_prefix("for ") else {
         return (TargetOs::Unknown, TargetArch::Unknown);
@@ -440,7 +440,7 @@ fn parse_embarcadero_target(after_compiler_name: &str) -> (TargetOs, TargetArch)
     }
 }
 
-/// Locate an `FPC M.m.p [YYYY/MM/DD] for <arch> - <OS>` line.
+/// Locates an `FPC M.m.p [YYYY/MM/DD] for <arch> - <OS>` line.
 fn find_fpc<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     // Scan for every candidate, not just the first - many FPC-built binaries
     // embed multiple FPC strings in `.rodata`. We want the first complete one.
@@ -464,7 +464,7 @@ fn find_fpc<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     None
 }
 
-/// Slice `data` starting at `start` for as long as the bytes are
+/// Slices `data` starting at `start` for as long as the bytes are
 /// printable ASCII, capped at `max_len`. Returns the resulting `&str`,
 /// or `None` if the slice is empty or non-UTF-8.
 fn printable_ascii_run(data: &[u8], start: usize, max_len: usize) -> Option<&str> {
@@ -533,7 +533,7 @@ const NAMESPACED_MARKERS: &[&[u8]] = &[
     b"System.Classes",
 ];
 
-/// Locate a legacy `SOFTWARE\Borland\Delphi\RTL` registry path.
+/// Locates a legacy `SOFTWARE\Borland\Delphi\RTL` registry path.
 ///
 /// A hit identifies the binary as Delphi without a specific version. The
 /// returned `raw` borrows the exact matched substring.
@@ -551,7 +551,7 @@ fn find_borland_registry<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     })
 }
 
-/// Locate a namespaced VCL/RTL unit name.
+/// Locates a namespaced VCL/RTL unit name.
 ///
 /// A hit identifies the binary as XE2-or-later Delphi. The returned `raw`
 /// borrows the exact matched substring.
@@ -593,13 +593,13 @@ pub fn scan_compiler<'a>(data: &'a [u8]) -> Option<CompilerInfo<'a>> {
     find_namespaced_units(data)
 }
 
-/// Count `TPF0` magic occurrences in the binary. Used as a medium-confidence
+/// Counts `TPF0` magic occurrences in the binary. Used as a medium-confidence
 /// heuristic when build-strings have been stripped.
 pub fn count_tpf0(data: &[u8]) -> usize {
     count_bytes(data, b"TPF0")
 }
 
-/// Run the full scan on a [`BinaryContext`] and summarize signals.
+/// Runs the full scan on a [`BinaryContext`] and summarizes signals.
 ///
 /// Both `compiler_info` and `tpf0_count` are gathered in one pass so callers
 /// don't have to re-scan the binary buffer. Scans are limited to the
@@ -746,7 +746,7 @@ pub struct DetectionReport<'a> {
     pub tpf0_count: usize,
 }
 
-/// Find the first occurrence of `needle` in `haystack`, returning its offset.
+/// Finds the first occurrence of `needle` in `haystack`, returning its offset.
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
@@ -754,7 +754,7 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-/// Count non-overlapping occurrences of `needle` in `haystack`.
+/// Counts non-overlapping occurrences of `needle` in `haystack`.
 fn count_bytes(haystack: &[u8], needle: &[u8]) -> usize {
     if needle.is_empty() || needle.len() > haystack.len() {
         return 0;

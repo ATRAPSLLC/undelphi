@@ -54,10 +54,10 @@
 use std::{ops::Range, str};
 
 use crate::{
-    extrtti::{AttributeEntry, Visibility},
+    extrtti::{AttributeEntry, Visibility, read_attr_data},
     formats::BinaryContext,
     limits::{MAX_FIELDS_PER_CLASS, MAX_IDENTIFIER_BYTES},
-    util::{read_ptr, read_short_string_at_file, read_u16, read_u32},
+    util::{as_identifier, read_ptr, read_short_string_at_file, read_u16, read_u32},
     vmt::{Vmt, VmtFlavor},
 };
 
@@ -75,8 +75,8 @@ pub struct Field<'a> {
 }
 
 impl<'a> Field<'a> {
-    /// Field name as `&str`, lossily decoded. Pascal identifiers are ASCII
-    /// in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
+    /// Field name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -100,7 +100,7 @@ pub enum FieldTypeRef {
 }
 
 impl<'a> Field<'a> {
-    /// Decode every published field declared on `vmt`. Returns an
+    /// Decodes every published field declared on `vmt`. Returns an
     /// empty vector if the class has no field table or the table is
     /// malformed.
     pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
@@ -269,7 +269,7 @@ fn iter_delphi<'a>(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<(Vec<Field<
 /// Validated against RAD Studio 10 Seattle's `TStringList` (Win32 and
 /// Win64): `FList`, `FCount`, `FCapacity`, `FSorted`, `FDuplicates`,
 /// `FCaseSensitive`, `FOnChange`, `FOnChanging`, `FOwnsObject`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ExtendedField<'a> {
     /// Declared visibility.
     pub visibility: Visibility,
@@ -281,19 +281,13 @@ pub struct ExtendedField<'a> {
     /// Byte offset of the field within the instance.
     pub offset: u32,
     name: &'a [u8],
-    /// Raw attribute entries (the `AttrData` body); empty without
-    /// attributes.
-    pub attributes_raw: &'a [u8],
+    /// The field's attributes (`[Name(...)]` before the declaration).
+    pub attributes: Vec<AttributeEntry<'a>>,
 }
 
 impl<'a> ExtendedField<'a> {
-    /// Decodes the field's attributes (`[Name(...)]` before the
-    /// declaration). `ptr_size` is the binary's pointer size.
-    pub fn attributes(&self, ptr_size: usize) -> Vec<AttributeEntry<'a>> {
-        AttributeEntry::decode_block(self.attributes_raw, ptr_size).0
-    }
-
-    /// Field name, lossily decoded.
+    /// Field name: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"` when the
+    /// bytes are not valid UTF-8.
     #[inline]
     pub fn name(&self) -> &'a str {
         str::from_utf8(self.name).unwrap_or("<non-ascii>")
@@ -305,9 +299,11 @@ impl<'a> ExtendedField<'a> {
         self.name
     }
 
-    /// Decode the extended field table of `vmt`. Empty before Delphi 2009
-    /// (the table ends with the published entries), on FPC, and when any
-    /// entry fails validation.
+    /// Decodes the extended field table of `vmt`. Empty for VMT headers
+    /// older than Delphi 2009 (the table ends with the published entries),
+    /// on FPC, and when any entry fails validation;
+    /// [`DelphiBinary::extended_fields`](crate::DelphiBinary::extended_fields)
+    /// also skips binaries whose compiler predates Delphi 2010.
     pub fn iter(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Vec<Self> {
         read_extended_delphi(ctx, vmt).map_or_else(Vec::new, |(fields, _)| fields)
     }
@@ -344,20 +340,16 @@ fn read_extended_delphi<'a>(
             return None;
         }
         let attr_off = name_off.checked_add(1)?.checked_add(name.len())?;
-        let attr_len = usize::from(read_u16(data, attr_off)?);
-        if attr_len < 2 {
-            return None;
-        }
-        let attributes_raw = data.get(attr_off.checked_add(2)?..attr_off.checked_add(attr_len)?)?;
+        let (attributes, next) = read_attr_data(data, attr_off, psize)?;
         out.push(ExtendedField {
             visibility: Visibility::from_flags(flags),
             flags,
             type_ref,
             offset,
             name,
-            attributes_raw,
+            attributes,
         });
-        cursor = attr_off.checked_add(attr_len)?;
+        cursor = next;
     }
     Some((out, cursor))
 }
@@ -435,9 +427,5 @@ fn align_up(off: usize, to: usize) -> Option<usize> {
 }
 
 fn is_plausible_name(name: &[u8]) -> bool {
-    if name.is_empty() || name.len() > MAX_IDENTIFIER_BYTES {
-        return false;
-    }
-    // Pascal identifier or `F`-prefixed field.
-    name.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+    name.len() <= MAX_IDENTIFIER_BYTES && as_identifier(name, &[]).is_some()
 }

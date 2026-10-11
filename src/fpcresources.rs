@@ -82,7 +82,7 @@ pub struct FpcResource<'a> {
     pub data: &'a [u8],
 }
 
-/// Walk the FPC resources tree and return every resource under `type_id`.
+/// Walks the FPC resources tree and returns every resource under `type_id`.
 pub fn iter_type<'a>(ctx: &BinaryContext<'a>, type_id: u32) -> Vec<FpcResource<'a>> {
     let Some(section) = ctx.sections().fpc_resources else {
         return Vec::new();
@@ -204,7 +204,7 @@ fn read_node(ctx: &BinaryContext<'_>, va: u64, ptr_size: usize) -> Option<Node> 
     })
 }
 
-/// Iterate `count` sibling [`Node`]s starting at `first_va`, with each
+/// Iterates `count` sibling [`Node`]s starting at `first_va`, with each
 /// node laid out contiguously at `node_byte_size` strides.
 fn iter_siblings(
     ctx: &BinaryContext<'_>,

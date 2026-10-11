@@ -79,7 +79,7 @@ use crate::{
         DELPHI_MAX_HEADER_SLOTS, DELPHI_MIN_HEADER_SLOTS, MAX_CLASS_NAME_BYTES,
         MAX_INSTANCE_SIZE_BYTES,
     },
-    util::{read_ptr, read_short_string_at_va},
+    util::{GENERIC_NAME_CHARS, as_identifier, read_ptr, read_short_string_at_va},
 };
 
 /// The pointer-sized fields of an FPC VMT header, `vmtInstanceSize` to
@@ -173,8 +173,8 @@ impl<'a> Vmt<'a> {
         Some(self.class_name_ptr..self.class_name_ptr.checked_add(len)?)
     }
 
-    /// Class name as `&str`, lossily decoded. Pascal class names are ASCII
-    /// in practice; non-UTF-8 bytes fall back to `"<non-ascii>"`.
+    /// Class name as `&str`: UTF-8, as Delphi 2009 and later store names, or `"<non-ascii>"`
+    /// when the bytes are not valid UTF-8.
     #[inline]
     pub fn class_name(&self) -> &'a str {
         str::from_utf8(self.class_name).unwrap_or("<non-ascii>")
@@ -203,7 +203,7 @@ const DELPHI_2009_HEADER_SLOTS: u8 = 22;
 /// We read fields 0 through 10 (IntfTable), so we need at least 11 slots.
 const FPC_MIN_SLOTS: usize = 11;
 
-/// Scan the binary for VMT candidates, returning every validated VMT.
+/// Scans the binary for VMT candidates, returning every validated VMT.
 ///
 /// Covers both Delphi and FPC flavors at every pointer-aligned offset.
 pub fn scan<'a>(ctx: &BinaryContext<'a>) -> Vec<Vmt<'a>> {
@@ -419,24 +419,13 @@ fn is_plausible_class_name(name: &[u8]) -> bool {
     }
     // Delphi / FPC class names are Pascal identifiers - possibly with
     // generics / namespace punctuation. Anything else is prose.
-    if !name.iter().all(|&b| is_identifier_byte(b)) {
+    let Some(name) = as_identifier(name, &GENERIC_NAME_CHARS) else {
         return false;
-    }
+    };
     // Must start with an uppercase letter, underscore, or `@` (compiler-
     // synthesised names). Historically every Delphi / FPC class starts
     // with `T` / `I` / `E` / `C`, but we accept any upper-case letter.
-    let Some(&first) = name.first() else {
-        return false;
-    };
-    first.is_ascii_uppercase() || first == b'_' || first == b'@'
-}
-
-fn is_identifier_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric()
-        || matches!(
-            b,
-            b'_' | b'.' | b'<' | b'>' | b',' | b':' | b'&' | b'@' | b' '
-        )
+    name.starts_with(|c: char| c.is_uppercase() || c == '_' || c == '@')
 }
 
 #[cfg(test)]

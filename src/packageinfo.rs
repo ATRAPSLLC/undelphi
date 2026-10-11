@@ -200,7 +200,7 @@ pub struct ContainedUnit<'a> {
     pub name: &'a str,
 }
 
-/// Parse a PACKAGEINFO resource body.
+/// Parses a PACKAGEINFO resource body.
 ///
 /// Returns `None` on any structural error: truncation, non-ASCII name, or
 /// impossible count. The parser deliberately does not allocate for strings -
@@ -266,7 +266,7 @@ impl<'a> Cursor<'a> {
         Some(u32::from_le_bytes(bytes.try_into().ok()?))
     }
 
-    /// Read a zero-terminated ASCII string and advance past the terminator.
+    /// Reads a zero-terminated ASCII string and advances past the terminator.
     fn read_cstr_ascii(&mut self) -> Option<&'a str> {
         let start = self.pos;
         let tail = self.buf.get(start..)?;

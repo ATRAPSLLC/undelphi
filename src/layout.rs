@@ -52,7 +52,7 @@ pub enum LayoutKind {
     },
 }
 
-/// Reconstruct the memory layout of an instance of `class`.
+/// Reconstructs the memory layout of an instance of `class`.
 pub fn reconstruct<'a>(bin: &DelphiBinary<'a>, class: &Class<'a>) -> Vec<LayoutEntry> {
     let psize = class.pointer_size() as u32;
     let total = class.instance_size();
