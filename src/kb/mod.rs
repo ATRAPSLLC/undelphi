@@ -7,9 +7,11 @@
 //! with the bytes its relocations patch masked out and each relocation's
 //! target named, so the routine can be recognised in any binary that links
 //! it; types carry their declaration, size, fields, properties and methods.
-//! The published files cover Delphi 2 - 7 and 2005 - XE6 (`kb2` ... `kb2014`
+//! The published files cover Delphi 2 - 7 and 2005 - XE4 (`kb2` ... `kb2014`
 //! with their `syskb` subsets for `System` / `SysInit`) on Win32 and XE2 -
-//! XE6 (`syskb2012` ... `syskb2014`) on Win64.
+//! XE4 (`syskb2012` ... `syskb2014`) on Win64. A file is named by the year
+//! IDR files the release under, `2011` - `2014` being XE - XE4 (IDR's
+//! `DelphiVersions` and version menu); the header records no release.
 //!
 //! [`KnowledgeBase`] reads a file without copying; [`Contents`] holds every
 //! record and writes the format back ([`Contents::to_bytes`]), byte for byte
@@ -60,14 +62,62 @@
 
 use std::{borrow::Cow, cmp::Ordering, error, fmt, iter, marker::PhantomData, ops::Range, str};
 
+use crate::dcu::Version;
+
 mod build;
 mod float;
+pub mod locate;
+pub mod notation;
 mod write;
 
 pub use self::{
     build::{UnitFile, build},
     write::WriteError,
 };
+
+/// The release a knowledge base was built for, by its file name: the
+/// release and the compiler version `dcc` reports for it (`"14.0"`,
+/// `"25.0"`).
+///
+/// IDR names a published file by the release's number up to Delphi 7 and by
+/// the year it files the release under from 2005 (`kb6.bin`,
+/// `syskb2014.bin`), `2011` - `2014` being XE - XE4 (IDR's
+/// `DelphiVersions` and its version menu); Delphi 2007 writes Delphi 2006's
+/// DCU format and reports compiler 18.5. A knowledge base [`build`] makes
+/// for a later release is named by its compiler version instead
+/// (`kb-30.0.bin`, `syskb-37.0.bin`), since IDR's scheme ends at 2014. The
+/// header records no release. `None` for any other name.
+#[must_use]
+pub fn published_release(file_name: &str) -> Option<(Version, String)> {
+    let stem = file_name.split(".bin").next()?.to_ascii_lowercase();
+    let number = stem
+        .strip_prefix("syskb")
+        .or_else(|| stem.strip_prefix("kb"))?;
+    if let Some(compiler) = number.strip_prefix('-') {
+        let major: u8 = compiler.strip_suffix(".0")?.parse().ok()?;
+        let version = Version::of_compiler(major)?;
+        return Some((version, compiler.to_string()));
+    }
+    let (version, compiler) = match number {
+        "2" => (Version::DELPHI_2, "9.0"),
+        "3" => (Version::DELPHI_3, "10.0"),
+        "4" => (Version::DELPHI_4, "12.0"),
+        "5" => (Version::DELPHI_5, "13.0"),
+        "6" => (Version::DELPHI_6, "14.0"),
+        "7" => (Version::DELPHI_7, "15.0"),
+        "2005" => (Version::DELPHI_2005, "17.0"),
+        "2006" => (Version::DELPHI_2006, "18.0"),
+        "2007" => (Version::DELPHI_2006, "18.5"),
+        "2009" => (Version::DELPHI_2009, "20.0"),
+        "2010" => (Version::DELPHI_2010, "21.0"),
+        "2011" => (Version::DELPHI_XE, "22.0"),
+        "2012" => (Version::DELPHI_XE2, "23.0"),
+        "2013" => (Version::DELPHI_XE3, "24.0"),
+        "2014" => (Version::DELPHI_XE4, "25.0"),
+        _ => return None,
+    };
+    Some((version, compiler.to_string()))
+}
 
 /// Size of the fixed header, reserved bytes included.
 const HEADER_SIZE: usize = 309;
@@ -465,6 +515,29 @@ pub struct Module<'a> {
     pub uses: Vec<Use<'a>>,
 }
 
+impl Module<'_> {
+    /// Returns the unit's name as the source declares it: the module name,
+    /// or the file name's spelling of it when the module name is in one case
+    /// and the file name mixes them (`system` in `System.dcu`, as the Delphi
+    /// 6 files record it; Delphi 4's `SYSTEM.DCU` keeps its module name).
+    #[must_use]
+    pub fn declared_name(&self) -> String {
+        let name = String::from_utf8_lossy(self.name.as_bytes());
+        let file = String::from_utf8_lossy(self.file_name.as_bytes());
+        let stem = file
+            .rsplit_once('.')
+            .map_or(file.as_ref(), |(stem, _)| stem);
+        let one_case = |s: &str| {
+            s.chars().all(|c| !c.is_ascii_uppercase()) || s.chars().all(|c| !c.is_ascii_lowercase())
+        };
+        if stem.eq_ignore_ascii_case(&name) && one_case(&name) && !one_case(stem) {
+            stem.to_string()
+        } else {
+            name.into_owned()
+        }
+    }
+}
+
 /// An entry of [`Module::uses`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Use<'a> {
@@ -539,6 +612,46 @@ impl<'a> Dump<'a> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.code.is_empty()
+    }
+
+    /// Returns whether a relocation is a relative call or jump: the dump
+    /// transfers control to a named routine, which only code does.
+    #[must_use]
+    pub fn calls(&self) -> bool {
+        self.fixups.iter().any(|f| f.kind == FixupKind::Jump)
+    }
+
+    /// Returns whether the dump has the shape of a Borland C++ type
+    /// descriptor (`__tpdsc__`): a `u32` size, the `u16` mask `0x0003`, the
+    /// `u16` offset of the type's name, and that name, printable text
+    /// ended by a NUL inside the dump.
+    ///
+    /// The compiler emits one per C++ type a unit uses, and IDR's files keep
+    /// them under the name `_DF_.` as they do the unit's C routines, which
+    /// the shape tells apart: the first bytes of machine code are not a mask
+    /// followed by an offset to a name.
+    #[must_use]
+    pub fn is_type_descriptor(&self) -> bool {
+        const MASK: u16 = 0x0003;
+        let word = |at: usize| {
+            let bytes = self.code.get(at..at.checked_add(2)?)?;
+            Some(u16::from_le_bytes(bytes.try_into().ok()?))
+        };
+        // The name starts past the header and ends at a NUL in the dump.
+        let Some(offset) = word(6).map(usize::from).filter(|&at| at >= 8) else {
+            return false;
+        };
+        let Some(tail) = self.code.get(offset..) else {
+            return false;
+        };
+        let Some(name) = tail
+            .iter()
+            .position(|&b| b == 0)
+            .and_then(|end| tail.get(..end))
+        else {
+            return false;
+        };
+        word(4) == Some(MASK) && !name.is_empty() && name.iter().all(|b| matches!(b, 0x20..=0x7E))
     }
 
     /// Returns whether `bytes` starts with this dump, ignoring the bytes a
@@ -778,6 +891,38 @@ pub struct Proc<'a> {
     /// The body of the locals section only the Delphi 2 files have (a
     /// `u16` count, `0` in every one); `None` without the section.
     pub locals: Option<Cow<'a, [u8]>>,
+}
+
+impl Proc<'_> {
+    /// Returns whether the record is a routine a binary can hold: its dump
+    /// is machine code a program enters.
+    ///
+    /// `release` is the Delphi release the knowledge base describes. IDR
+    /// files a record as data only for the strings that typed constants
+    /// refer to. But the blocks a Delphi 4 or later compiler emits without a
+    /// name (`_NF__<index>`) are string literals, resource string and
+    /// exception tables and the interface method tables of classes, and a
+    /// table is no routine. The one such block with code in it is the
+    /// interface method table, whose thunks adjust `Self` and jump to the
+    /// method, a jump a relocation names. So an unnamed block with no call
+    /// or jump relocation is data, whatever its record says. A thunk that
+    /// jumps through a register, as a CORBA stub does, has none either; the
+    /// record does not tell it from a table, and it is left out with them.
+    /// Delphi 3 files unnamed methods the same way, and those are routines.
+    ///
+    /// The files also file the type descriptors of Borland C++ units as
+    /// code, under the name `_DF_.` that the units' C routines have too
+    /// (`MidasLib`, the dbExpress drivers). A `_DF_.` record whose dump has
+    /// the shape of a descriptor ([`Dump::is_type_descriptor`]) is data; the
+    /// others are routines, with or without a relocation, a leaf routine
+    /// having none.
+    #[must_use]
+    pub fn holds_code(&self, release: Version) -> bool {
+        let name = self.name.as_bytes();
+        let block = release.delphi_at_least(Version::DELPHI_4) && name.starts_with(b"_NF__");
+        let descriptor = name == b"_DF_." && self.dump.is_type_descriptor();
+        self.dump_type == DumpType::Code && !descriptor && (!block || self.dump.calls())
+    }
 }
 
 /// A parameter of a [`Proc`].

@@ -449,6 +449,13 @@ impl<'a> BinaryContext<'a> {
         self.target_arch
     }
 
+    /// The executable sections' VA ranges, `[start, end)`, the ranges
+    /// [`BinaryContext::is_code_va`] tests against.
+    #[inline]
+    pub fn code_ranges(&self) -> &[(u64, u64)] {
+        &self.code_ranges
+    }
+
     /// Whether `va` lies inside an executable section (PE sections marked
     /// executable or code - Delphi XE+ `.text` and `.itext` alike - ELF
     /// `SHF_EXECINSTR`, Mach-O instruction sections). Used by walkers that

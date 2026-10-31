@@ -5,14 +5,16 @@ use std::{borrow::Cow, collections::HashSet, ops::Range};
 
 use crate::{
     dcu::{self, AddrTarget, DeclId, DeclKind, RangeKind, Unit},
-    kb::{Const, ConstKind, Dump, Fixup, FixupKind, float},
-};
-
-use super::{
-    UnitBuilder,
-    names::is_resource_text,
-    print::{bool_str, char_value, hex_value, mask, ndx_str},
-    text,
+    kb::{
+        Const, ConstKind, Dump, Fixup, FixupKind,
+        build::{
+            UnitBuilder,
+            names::is_resource_text,
+            print::{bool_str, char_value, hex_value, mask, ndx_str},
+            text,
+        },
+        float,
+    },
 };
 
 impl UnitBuilder<'_> {

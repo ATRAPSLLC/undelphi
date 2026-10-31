@@ -10,8 +10,11 @@
 //! ref-counted reference (strings, interfaces, dynamic arrays, other
 //! managed records). The runtime consumes this table during
 //! `AfterConstruction` and `Destroy` to initialise and finalise those
-//! fields. Decoding it is a straight reuse of
-//! [`crate::rtti::RecordInfo::from_va`].
+//! fields. [`crate::rtti::RecordInfo::from_init_table`] decodes it as an
+//! unnamed record under the binary's
+//! [`crate::rtti::InitTableLayout`]: from Delphi 11 the managed fields are
+//! followed by the operator section (`NumOps: Byte` and `RecOps[NumOps]`),
+//! which [`crate::DelphiBinary::init_table_layout`] says whether to read.
 //!
 //! Source: FPC `rtl/inc/rtti.inc` - `InitializeArray` / `FinalizeArray`.
 //!
@@ -71,7 +74,7 @@ use std::{ops::Range, str};
 use crate::{
     formats::BinaryContext,
     limits::{MAX_AUTO_ENTRIES_PER_CLASS, MAX_AUTO_PARAMS, MAX_DYNAMIC_SLOTS_PER_CLASS},
-    rtti::RecordInfo,
+    rtti::{InitTableLayout, RecordInfo},
     util::{as_identifier, read_ptr, read_short_string_at_file, read_u16, read_u32},
     vmt::{Vmt, VmtFlavor},
 };
@@ -79,13 +82,39 @@ use crate::{
 impl<'a> RecordInfo<'a> {
     /// Decodes the class's init (managed-fields) table - the
     /// `vmtInitTable` synthetic record that enumerates instance
-    /// offsets the runtime needs to refcount-manage. Returns `None`
-    /// when `vmtInitTable` is null or the record can't be decoded.
-    pub fn from_init_table(ctx: &BinaryContext<'a>, vmt: &Vmt<'a>) -> Option<Self> {
+    /// offsets the runtime needs to refcount-manage. `layout` says whether
+    /// the runtime follows the managed fields with an operator section.
+    /// Returns `None` when `vmtInitTable` is null or the record can't be
+    /// decoded.
+    pub fn from_init_table(
+        ctx: &BinaryContext<'a>,
+        vmt: &Vmt<'a>,
+        layout: InitTableLayout,
+    ) -> Option<Self> {
         if vmt.init_table == 0 {
             return None;
         }
-        Self::from_va(ctx, vmt.init_table, vmt.flavor)
+        Self::decode(ctx, vmt.init_table, vmt.flavor, layout)
+    }
+
+    /// Returns the virtual addresses `vmt`'s init table occupies: the Kind
+    /// byte, the empty name, the record size, the managed-field count, that
+    /// many (type, offset) pairs, each two pointers wide, and on a runtime
+    /// whose `layout` carries it the operator section (`NumOps` and that
+    /// many pointers).
+    ///
+    /// `None` when the class has none, when [`Self::from_init_table`] cannot
+    /// decode it, or on Free Pascal, whose init record the walk does not
+    /// measure.
+    pub fn init_table_extent(
+        ctx: &BinaryContext<'a>,
+        vmt: &Vmt<'a>,
+        layout: InitTableLayout,
+    ) -> Option<Range<u64>> {
+        if vmt.flavor != VmtFlavor::Delphi {
+            return None;
+        }
+        Self::from_init_table(ctx, vmt, layout)?.extent()
     }
 }
 

@@ -62,10 +62,18 @@ pub struct UnitFile {
 /// without the extension (`classes` for Delphi 6's `classes.pas`), else the
 /// declared name.
 fn module_name(unit: &Unit) -> &str {
-    unit.sources
-        .iter()
-        .find(|s| s.kind == SourceKind::Source)
-        .and_then(|s| s.name.rsplit_once('.').map(|(stem, _)| stem))
+    let stems = || {
+        unit.sources
+            .iter()
+            .filter(|s| s.kind == SourceKind::Source)
+            .filter_map(|s| s.name.rsplit_once('.').map(|(stem, _)| stem))
+    };
+    // The unit's own source, spelled as its file is: a unit compiled with
+    // include files lists those as sources too, and from 10 Seattle
+    // `System.dcu` lists `LocaleData.inc` first.
+    stems()
+        .find(|stem| stem.eq_ignore_ascii_case(&unit.name))
+        .or_else(|| stems().next())
         .unwrap_or(&unit.name)
 }
 

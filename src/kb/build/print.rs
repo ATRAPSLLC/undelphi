@@ -2,11 +2,12 @@
 //! System.TVarRec`, `procedure(val Sender:System.TObject) of object`) and
 //! the ordinal formats they share with values.
 
-use crate::dcu::{self, CallConv, DeclId, ImportKind, RangeKind, TypeKind as DcuType, TypeTarget};
-
-use super::{
-    UnitBuilder,
-    names::{dotted, is_aux_name},
+use crate::{
+    dcu::{self, CallConv, DeclId, ImportKind, RangeKind, TypeKind as DcuType, TypeTarget},
+    kb::build::{
+        UnitBuilder,
+        names::{dotted, is_aux_name},
+    },
 };
 
 impl UnitBuilder<'_> {

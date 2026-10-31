@@ -50,7 +50,7 @@
 //! matches our empirical corpus; an FPC-flavor variant can be added
 //! when needed.
 
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 
 use crate::{
     classes::{Class, ClassSet},
@@ -93,6 +93,16 @@ impl Visibility {
             1 => Visibility::Protected,
             2 => Visibility::Public,
             _ => Visibility::Published,
+        }
+    }
+
+    /// Stable label for persistence and display: the Pascal keyword.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Visibility::Private => "private",
+            Visibility::Protected => "protected",
+            Visibility::Public => "public",
+            Visibility::Published => "published",
         }
     }
 }
@@ -200,6 +210,58 @@ pub enum AttributeArg<'a> {
     /// Bytes of an argument whose type this decoder does not size, and
     /// everything after it.
     Raw(&'a [u8]),
+}
+
+impl fmt::Display for AttributeArg<'_> {
+    /// Writes the argument as Pascal source spells it: a number, a quoted
+    /// string (`'it''s'`), a set (`[1, 3]`), a type's name or a `$`-hex
+    /// pointer; undecoded bytes as `<n bytes>`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AttributeArg::Ordinal(v) => write!(f, "{v}"),
+            AttributeArg::Float(v) => write!(f, "{v}"),
+            AttributeArg::String(s) => write!(f, "'{}'", s.replace('\'', "''")),
+            AttributeArg::ShortString(b) => {
+                write!(f, "'{}'", String::from_utf8_lossy(b).replace('\'', "''"))
+            }
+            AttributeArg::Set(members) => {
+                f.write_str("[")?;
+                for (i, m) in members.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{m}")?;
+                }
+                f.write_str("]")
+            }
+            AttributeArg::Reference {
+                type_name: Some(name),
+                ..
+            } => f.write_str(name),
+            AttributeArg::Reference { value, .. } => write!(f, "${value:X}"),
+            AttributeArg::Raw(b) => write!(f, "<{} bytes>", b.len()),
+        }
+    }
+}
+
+impl fmt::Display for DecodedAttribute<'_> {
+    /// Writes the attribute as Pascal source spells it, its arguments in
+    /// parentheses: `[TagAttribute('method', 3)]`; `?` for a type whose
+    /// name does not resolve.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}", self.type_name.unwrap_or("?"))?;
+        if !self.args.is_empty() {
+            f.write_str("(")?;
+            for (i, arg) in self.args.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(", ")?;
+                }
+                write!(f, "{arg}")?;
+            }
+            f.write_str(")")?;
+        }
+        f.write_str("]")
+    }
 }
 
 /// An attribute with its type and constructor resolved and its arguments

@@ -2,8 +2,8 @@
 //!
 //! A Delphi or FPC binary keeps its class metadata in the same section as its
 //! code: VMT headers, virtual-method arrays, class names, the published
-//! method, field, field class, dynamic, interface and automation tables,
-//! interface vtables and RTTI records sit between functions, and Delphi puts
+//! method, field, field class, dynamic, interface, automation and init
+//! tables, interface vtables and RTTI records sit between functions, and Delphi puts
 //! its string constants there too. A disassembler that does not know where
 //! they are decodes them as instructions.
 //! [`DelphiBinary::structure_extents`] states each one's extent, measured by
@@ -16,7 +16,7 @@ use crate::{
     fields::Field,
     interfaces::{Guid, InterfaceEntry},
     methods::MethodEntry,
-    rtti::{StringLayout, TypeDetail},
+    rtti::{RecordInfo, StringLayout, TypeDetail},
     util::{read_ptr, read_u16, read_u32},
     vmt::VmtFlavor,
     vmttables::{AutoEntry, DynamicSlot},
@@ -50,6 +50,11 @@ pub enum StructureKind {
     AutoTable,
     /// A dynamic-dispatch table.
     DynamicTable,
+    /// A class's init table: the managed fields of its instances, which the
+    /// runtime initializes and finalizes. Its Kind byte, empty name, size,
+    /// field count, one (type, offset) pair per field and, on Delphi 11 and
+    /// later, the operator section: `NumOps` and that many pointers.
+    InitTable,
     /// An interface table.
     InterfaceTable,
     /// The method pointers of an interface a class implements.
@@ -84,6 +89,7 @@ impl StructureKind {
             Self::FieldClassTable => "field class table",
             Self::AutoTable => "automation table",
             Self::DynamicTable => "dynamic-dispatch table",
+            Self::InitTable => "init table",
             Self::InterfaceTable => "interface table",
             Self::InterfaceVtable => "interface vtable",
             Self::TypeInfo => "RTTI type record",
@@ -112,6 +118,47 @@ impl<'a> DelphiBinary<'a> {
     /// bails out is left out rather than guessed at. Structures several
     /// classes share, such as an RTTI record two properties name, appear once.
     pub fn structure_extents(&self) -> Vec<StructureExtent> {
+        let mut out = self.structures_beside_init_tables();
+        let layout = self.init_table_layout_over(|| {
+            out.iter()
+                .map(|structure| structure.extent.clone())
+                .collect()
+        });
+        let ctx = self.ctx();
+        for class in self.classes().iter() {
+            if let Some(extent) = RecordInfo::init_table_extent(ctx, &class.vmt, layout)
+                .filter(|extent| extent.start < extent.end)
+            {
+                out.push(StructureExtent {
+                    extent,
+                    kind: StructureKind::InitTable,
+                });
+            }
+        }
+        let held: Vec<Range<u64>> = out
+            .iter()
+            .map(|structure| structure.extent.clone())
+            .collect();
+        out.extend(
+            self.guid_constants(&held)
+                .into_iter()
+                .map(|extent| StructureExtent {
+                    extent,
+                    kind: StructureKind::GuidConstant,
+                }),
+        );
+        out.sort_by_key(|structure| (structure.extent.start, structure.extent.end));
+        out.dedup();
+        out
+    }
+
+    /// Returns the extent of every structure [`Self::structure_extents`]
+    /// states except the init tables and the GUID constants, unsorted: the
+    /// structures an undated binary's init tables are measured against
+    /// ([`Self::init_table_layout`]). The GUID constants are left out because
+    /// their search skips the bytes of every other structure, the init
+    /// tables included.
+    pub(crate) fn structures_beside_init_tables(&self) -> Vec<StructureExtent> {
         let ctx = self.ctx();
         let mut out = Vec::new();
         let mut push = |extent: Option<Range<u64>>, kind: StructureKind| {
@@ -209,20 +256,6 @@ impl<'a> DelphiBinary<'a> {
                 .and_then(|table| table.extent(pointer)),
             StructureKind::UnitInitTable,
         );
-        let held: Vec<Range<u64>> = out
-            .iter()
-            .map(|structure| structure.extent.clone())
-            .collect();
-        out.extend(
-            self.guid_constants(&held)
-                .into_iter()
-                .map(|extent| StructureExtent {
-                    extent,
-                    kind: StructureKind::GuidConstant,
-                }),
-        );
-        out.sort_by_key(|structure| (structure.extent.start, structure.extent.end));
-        out.dedup();
         out
     }
 

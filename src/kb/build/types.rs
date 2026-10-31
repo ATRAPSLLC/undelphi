@@ -11,13 +11,12 @@ use crate::{
     kb::{
         Dump, Field as KbField, Method as KbMethod, ProcKind, Property as KbProperty, Scope, Text,
         Type, TypeKind as KbTypeKind,
+        build::{
+            UnitBuilder,
+            names::{dotted, is_aux_name},
+            text,
+        },
     },
-};
-
-use super::{
-    UnitBuilder,
-    names::{dotted, is_aux_name},
-    text,
 };
 
 impl UnitBuilder<'_> {

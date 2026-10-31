@@ -1,9 +1,10 @@
 //! Names: how the files spell declarations, compiler-generated names
 //! (`.1` as `_DV_1`, unnamed routines as `_NF__2EA`) and imports.
 
-use crate::dcu::{self, AddrTarget, Decl, DeclKind};
-
-use super::UnitBuilder;
+use crate::{
+    dcu::{self, AddrTarget, Decl, DeclKind},
+    kb::build::UnitBuilder,
+};
 
 impl UnitBuilder<'_> {
     /// A declaration's name with `.` spelled out: `typed` for a typed

@@ -143,6 +143,17 @@ impl Version {
         }
     }
 
+    /// Returns the Delphi release whose compiler reports version `major`
+    /// (`14` for Delphi 6, `37` for Delphi 13): the inverse of
+    /// [`Version::compiler_version`]. `None` for a number no release
+    /// reports, and for 18 and 18.5's shared 18, which is Delphi 2006.
+    #[must_use]
+    pub fn of_compiler(major: u8) -> Option<Self> {
+        (2..=99)
+            .map(Self)
+            .find(|v| v.compiler_version() == Some(major))
+    }
+
     /// Returns the product name, `"Delphi 10 Seattle"` style.
     #[must_use]
     pub fn product_name(self) -> String {
@@ -336,6 +347,10 @@ mod tests {
         assert_eq!(Version::DELPHI_10_SEATTLE.compiler_version(), Some(30));
         assert_eq!(Version::DELPHI_6.compiler_version(), Some(14));
         assert_eq!(Version::DELPHI_2009.compiler_version(), Some(20));
+        assert_eq!(Version::of_compiler(30), Some(Version::DELPHI_10_SEATTLE));
+        assert_eq!(Version::of_compiler(37), Some(Version::DELPHI_13_FLORENCE));
+        assert_eq!(Version::of_compiler(14), Some(Version::DELPHI_6));
+        assert_eq!(Version::of_compiler(11), None);
         assert!(Magic::decode(0xDEAD_BEEF).is_none());
     }
 }

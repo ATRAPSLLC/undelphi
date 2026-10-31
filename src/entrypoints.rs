@@ -23,6 +23,7 @@ use crate::{
     classes::Class,
     imports::{BorlandSymbol, SymbolKind},
     properties::{Access, AccessKind, AccessTarget},
+    rtti::TypeDetail,
     vmt::VmtFlavor,
     vtable::VirtualMethodEntry,
 };
@@ -34,6 +35,20 @@ use crate::{
 pub enum EntrypointKind {
     /// Reached through a class's published-method table (`MethodEntry`).
     PublishedMethod,
+    /// Reached through a class's Delphi 2010+ extended-method table
+    /// ([`crate::methods::DelphiExtMethod`]): a method of any visibility
+    /// that `{$RTTI}` selects. An `abstract` method is left out, its entry
+    /// pointing at `System.@AbstractError`, which no one method owns.
+    ExtendedMethod,
+    /// Reached through a record type's extended RTTI
+    /// ([`crate::rtti::RecordMethod`]): a method, constructor or class
+    /// operator of a record.
+    RecordMethod,
+    /// Reached through a class's automation table
+    /// ([`crate::vmttables::AutoEntry`]): a method of its `automated`
+    /// section. Its property accessors there are labelled as
+    /// [`Self::PropertyGetter`] / [`Self::PropertySetter`].
+    AutomatedMethod,
     /// Reached through a class's virtual-method-pointer array
     /// (`VirtualMethodEntry`).
     VmtSlot,
@@ -106,6 +121,9 @@ impl EntrypointKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             EntrypointKind::PublishedMethod => "published_method",
+            EntrypointKind::ExtendedMethod => "extended_method",
+            EntrypointKind::RecordMethod => "record_method",
+            EntrypointKind::AutomatedMethod => "automated_method",
             EntrypointKind::VmtSlot => "vmt_slot",
             EntrypointKind::DynamicMessage => "dynamic_message",
             EntrypointKind::InterfaceGetter => "interface_getter",
@@ -130,9 +148,9 @@ impl fmt::Display for EntrypointKind {
 
 /// Collects every code VA the crate can confidently label.
 ///
-/// Walks every class's published methods, VMT slots, dynamic-message
-/// slots, interface getters, property getters/setters/stored, plus the
-/// global unit init/finalize table. Produces duplicates across kinds -
+/// Walks every class's published and extended methods, VMT slots,
+/// dynamic-message slots, interface getters, property getters/setters/stored,
+/// every record type's methods, plus the global unit init/finalize table. Produces duplicates across kinds -
 /// dedup is the caller's job, since they typically have a kind-priority.
 pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
     let mut out: Vec<CodeEntrypoint<'a>> = Vec::new();
@@ -145,6 +163,19 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
             out.push(CodeEntrypoint::new(
                 m.code_va,
                 EntrypointKind::PublishedMethod,
+                Some(class),
+                format!("{}.{}", class_name, m.name()),
+            ));
+        }
+
+        // Extended-RTTI methods (Delphi 2010+), of every visibility.
+        for m in bin.extended_methods(class) {
+            if m.code_va == 0 || m.info().is_abstract() {
+                continue;
+            }
+            out.push(CodeEntrypoint::new(
+                m.code_va,
+                EntrypointKind::ExtendedMethod,
                 Some(class),
                 format!("{}.{}", class_name, m.name()),
             ));
@@ -282,6 +313,31 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
             );
         }
 
+        // The `automated` section's methods and property accessors, whose
+        // entry holds a code address (a virtual one holds a VMT offset).
+        for entry in bin.auto_entries(class) {
+            if entry.is_virtual() || entry.address == 0 {
+                continue;
+            }
+            let (kind, label) = if entry.is_getter() {
+                (
+                    EntrypointKind::PropertyGetter,
+                    format!("{class_name}.{}Get", entry.name()),
+                )
+            } else if entry.is_setter() {
+                (
+                    EntrypointKind::PropertySetter,
+                    format!("{class_name}.{}Set", entry.name()),
+                )
+            } else {
+                (
+                    EntrypointKind::AutomatedMethod,
+                    format!("{class_name}.{}", entry.name()),
+                )
+            };
+            out.push(CodeEntrypoint::new(entry.address, kind, Some(class), label));
+        }
+
         // Class-level [attribute] constructors. The call is here so the helper
         // picks them up automatically as attribute-table coverage expands.
         for attr in bin.class_attributes(class) {
@@ -294,15 +350,35 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
         }
     }
 
-    // Unit-level init / finalize. Delphi binaries return empty by design;
-    // FPC binaries use the INITFINAL table when present.
-    for unit in bin.unit_init_procs() {
+    // Record methods, constructors and operators (Delphi 2010+).
+    for detail in bin.types() {
+        let TypeDetail::Record(record) = detail else {
+            continue;
+        };
+        let record_name = record.header.name();
+        for m in record.methods.iter().filter(|m| m.code_va != 0) {
+            out.push(CodeEntrypoint::new(
+                m.code_va,
+                EntrypointKind::RecordMethod,
+                None,
+                format!("{record_name}.{}", m.name()),
+            ));
+        }
+    }
+
+    // Unit-level init / finalize, from Delphi's unit initialization table or
+    // FPC's INITFINAL table. A unit the table does not name is labelled by
+    // its position, as an unnamed VMT slot is.
+    for (position, unit) in bin.unit_init_procs().iter().enumerate() {
+        let owner = unit
+            .unit_name
+            .map_or_else(|| format!("unit[{position}]"), str::to_string);
         if let Some(va) = unit.init_va {
             out.push(CodeEntrypoint::new(
                 va,
                 EntrypointKind::UnitInit,
                 None,
-                format!("{}.Initialization", unit.unit_name),
+                format!("{owner}.Initialization"),
             ));
         }
         if let Some(va) = unit.finalize_va {
@@ -310,7 +386,7 @@ pub fn collect<'a>(bin: &'a DelphiBinary<'a>) -> Vec<CodeEntrypoint<'a>> {
                 va,
                 EntrypointKind::UnitFinalize,
                 None,
-                format!("{}.Finalization", unit.unit_name),
+                format!("{owner}.Finalization"),
             ));
         }
     }
