@@ -194,6 +194,7 @@ macro_rules! __undelphi_trace_warn {
 use std::{
     collections::{HashMap, HashSet},
     error, fmt,
+    ops::Range,
     sync::OnceLock,
 };
 
@@ -326,6 +327,8 @@ pub struct DelphiBinary<'a> {
     import_index: OnceLock<HashMap<u64, usize>>,
     /// Lazy-initialised [`DelphiBinary::string_layout`].
     string_layout_cache: OnceLock<rtti::StringLayout>,
+    /// Lazy-initialised [`DelphiBinary::init_table_layout`].
+    init_table_layout_cache: OnceLock<rtti::InitTableLayout>,
 }
 
 impl<'a> DelphiBinary<'a> {
@@ -400,6 +403,7 @@ impl<'a> DelphiBinary<'a> {
             delphi_interface_index: OnceLock::new(),
             import_index: OnceLock::new(),
             string_layout_cache: OnceLock::new(),
+            init_table_layout_cache: OnceLock::new(),
         })
     }
 
@@ -822,10 +826,56 @@ impl<'a> DelphiBinary<'a> {
         vtable::StandardVirtual::iter(&self.ctx, &class.vmt)
     }
 
+    /// Returns the init table layout this binary's compiler emits.
+    ///
+    /// Delphi 11 added the operator section to init tables, so the compiler
+    /// version dates a Delphi runtime ([`rtti::InitTableLayout::of_compiler`]).
+    /// A Delphi or C++Builder binary that cannot be dated (its build string
+    /// stripped or versionless, and no RTL package imported) shows its
+    /// layout by its own init tables ([`rtti::InitTableLayout::shown_by`]),
+    /// measured against the other structures
+    /// [`Self::structure_extents`] states. The answer is computed once: on a
+    /// dated binary it costs nothing, and on an undated one it costs two
+    /// extra decodes of every init table (one under each layout), plus the walk of the other
+    /// structures when it is first asked for outside
+    /// [`Self::structure_extents`].
+    pub fn init_table_layout(&self) -> rtti::InitTableLayout {
+        self.init_table_layout_over(|| {
+            self.structures_beside_init_tables()
+                .into_iter()
+                .map(|structure| structure.extent)
+                .collect()
+        })
+    }
+
+    /// Returns [`Self::init_table_layout`], measuring an undated binary's
+    /// init tables against the extents `stated` returns, which must be those
+    /// of [`Self::structures_beside_init_tables`]. `stated` is called only
+    /// when the layout is neither cached nor dated by the compiler.
+    pub(crate) fn init_table_layout_over(
+        &self,
+        stated: impl FnOnce() -> Vec<Range<u64>>,
+    ) -> rtti::InitTableLayout {
+        *self.init_table_layout_cache.get_or_init(|| {
+            rtti::InitTableLayout::of_compiler(self.compiler()).unwrap_or_else(|| {
+                let tables: Vec<u64> = self
+                    .classes()
+                    .iter()
+                    .filter(|class| {
+                        class.vmt.flavor == vmt::VmtFlavor::Delphi && class.vmt.init_table != 0
+                    })
+                    .map(|class| class.vmt.init_table)
+                    .collect();
+                rtti::InitTableLayout::shown_by(&self.ctx, &tables, &stated())
+            })
+        })
+    }
+
     /// Decodes the class's init (managed-fields) table - the list of
-    /// instance offsets the runtime needs to refcount-manage.
+    /// instance offsets the runtime needs to refcount-manage - and, on a
+    /// runtime that emits one, its operator section.
     pub fn init_table(&self, class: &Class<'a>) -> Option<rtti::RecordInfo<'a>> {
-        rtti::RecordInfo::from_init_table(&self.ctx, &class.vmt)
+        rtti::RecordInfo::from_init_table(&self.ctx, &class.vmt, self.init_table_layout())
     }
 
     /// Decodes the class's dynamic-dispatch table (message handlers +
@@ -863,8 +913,8 @@ impl<'a> DelphiBinary<'a> {
     ///
     /// Delphi: walks the compiler's `PackageInfoTable`
     /// ([`Self::unit_init_table`]), in initialization order. Its entries carry no
-    /// unit names, so `unit_name` is `"<unknown>"`; consumers that want the
-    /// unit list can read [`DelphiBinary::package_info`].
+    /// unit names, so `unit_name` is `None`; a knowledge base names them
+    /// ([`kb::locate::KbIndex::init_owners`]).
     pub fn unit_init_procs(&self) -> Vec<initfini::UnitInitProc<'a>> {
         if self.flavor() == vmt::VmtFlavor::Delphi
             && let Some(table) = self.unit_init_table()
@@ -873,7 +923,7 @@ impl<'a> DelphiBinary<'a> {
                 .units
                 .iter()
                 .map(|unit| initfini::UnitInitProc {
-                    unit_name: "<unknown>",
+                    unit_name: None,
                     init_va: unit.init_va,
                     finalize_va: unit.finalize_va,
                 })
@@ -1197,6 +1247,46 @@ impl<'a> DelphiBinary<'a> {
                 rtti::StringLayout::Plain
             }
         })
+    }
+
+    /// Full per-Kind RTTI decode for the type a `PPTypeInfo` cell names: a
+    /// method parameter's or result's ([`signatures::MethodParam::type_va`],
+    /// [`signatures::MethodSignature::result_type_va`]), a record field's
+    /// ([`rtti::RecordField::type_ref`]), or any other. `None` for a null
+    /// cell, one that names another module's type (an import slot), or a
+    /// record that does not decode.
+    pub fn type_at(&self, pptypeinfo_va: u64) -> Option<rtti::TypeDetail<'a>> {
+        if pptypeinfo_va == 0 {
+            return None;
+        }
+        let ptr_size = self.ctx.pointer_size()?;
+        let type_info_va = rtti::TypeHeader::deref_pptypeinfo(&self.ctx, pptypeinfo_va, ptr_size)?;
+        rtti::TypeDetail::from_va(&self.ctx, type_info_va, self.flavor(), self.string_layout())
+    }
+
+    /// Maps each RTTI type's `PTypeInfo` address to the unit that declares
+    /// it, from the Delphi 2010+ type table of the unit initialization table
+    /// ([`unitinit::UnitInitTable::types`]). The RTTI of a record, an
+    /// enumeration's base or a set names no unit of its own; this does.
+    /// Empty before Delphi 2010 and on FPC.
+    pub fn declaring_units(&self) -> HashMap<u64, &'a str> {
+        let Some(ptr_size) = self.ctx.pointer_size() else {
+            return HashMap::new();
+        };
+        let Some(groups) = self.unit_init_table().and_then(|table| table.types) else {
+            return HashMap::new();
+        };
+        let mut out = HashMap::new();
+        for group in &groups {
+            for &cell in &group.type_refs {
+                if let Some(type_info) =
+                    rtti::TypeHeader::deref_pptypeinfo(&self.ctx, cell, ptr_size)
+                {
+                    out.entry(type_info).or_insert(group.name());
+                }
+            }
+        }
+        out
     }
 
     /// Full per-Kind RTTI decode for the type referenced by a property's

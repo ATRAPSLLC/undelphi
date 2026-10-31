@@ -128,35 +128,55 @@ impl Unit {
         if self.msil || self.is_marker(fixup) {
             return None;
         }
+        Encoding::of_kind(self.version, self.platform, fixup.kind, target)
+    }
+}
+
+impl Encoding {
+    /// Returns how a relocation of DCU kind `kind` in a unit of `version`
+    /// for `platform` encodes a target of kind `target`, before the
+    /// thread-variable check of [`Unit::fixup_encoding`]; `None` for a kind
+    /// not established (see the module docs).
+    ///
+    /// The kinds are the DCU's, which a knowledge base records as letters
+    /// (see [`crate::kb::Fixup::dcu_kind`]), so both the units and the
+    /// knowledge bases built from them decode through this one table.
+    #[must_use]
+    pub fn of_kind(
+        version: Version,
+        platform: Platform,
+        kind: u8,
+        target: TargetKind,
+    ) -> Option<Self> {
         let thread_or = |plain| {
             if target == TargetKind::Thread {
-                Encoding::ThreadOffset
+                Self::ThreadOffset
             } else {
                 plain
             }
         };
-        if !self.version.delphi_at_least(Version::DELPHI_2010) {
-            if self.platform != Platform::Win32 {
+        if !version.delphi_at_least(Version::DELPHI_2010) {
+            if platform != Platform::Win32 {
                 return None;
             }
-            return match fixup.kind {
-                1 => Some(thread_or(Encoding::Absolute)),
-                2 => Some(Encoding::Relative),
-                3 => Some(Encoding::Indirect),
+            return match kind {
+                1 => Some(thread_or(Self::Absolute)),
+                2 => Some(Self::Relative),
+                3 => Some(Self::Indirect),
                 _ => None,
             };
         }
-        match (self.platform, fixup.kind) {
-            (Platform::Win32, 4) => Some(thread_or(Encoding::Absolute)),
-            (Platform::Win32, 5) | (Platform::Win64, 5) => Some(Encoding::Relative),
-            (Platform::Win32, 6) => Some(Encoding::Indirect),
-            (Platform::Win32, 8) | (Platform::Win64, 0x0E) => Some(Encoding::Absolute),
-            (Platform::Win64, 4) => Some(Encoding::ThreadOffset),
-            (Platform::Win64, 0x15) => Some(Encoding::ImageRelative),
+        match (platform, kind) {
+            (Platform::Win32, 4) => Some(thread_or(Self::Absolute)),
+            (Platform::Win32, 5) | (Platform::Win64, 5) => Some(Self::Relative),
+            (Platform::Win32, 6) => Some(Self::Indirect),
+            (Platform::Win32, 8) | (Platform::Win64, 0x0E) => Some(Self::Absolute),
+            (Platform::Win64, 4) => Some(Self::ThreadOffset),
+            (Platform::Win64, 0x15) => Some(Self::ImageRelative),
             (Platform::Win64, 0x17) => Some(if target == TargetKind::Data {
-                Encoding::IndirectRelative
+                Self::IndirectRelative
             } else {
-                Encoding::Relative
+                Self::Relative
             }),
             _ => None,
         }

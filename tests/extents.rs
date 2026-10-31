@@ -1,8 +1,9 @@
 //! The extents [`DelphiBinary::structure_extents`] states, checked against
 //! what the structures' own fields say, on the sample corpus.
 //!
-//! A sample that is not present (the corpus is not committed everywhere) is
-//! skipped rather than failed.
+//! The committed samples must be present; a test that reads one fails without
+//! it. The gitignored corpus is optional: a sample that is not present is
+//! skipped, and its path is named on stderr.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -11,13 +12,13 @@
     clippy::panic
 )]
 
-use std::{collections::HashSet, fs, path::Path};
+use std::{collections::HashSet, env, fs, path::Path};
 
 use undelphi::{
     DelphiBinary,
     extents::{StructureExtent, StructureKind},
     fields::Field,
-    rtti::{StringLayout, TypeDetail},
+    rtti::{InitTableLayout, RecordInfo, StringLayout, TypeDetail, TypeKind},
     vmt::VmtFlavor,
     vmttables::AutoEntry,
 };
@@ -489,4 +490,366 @@ fn delphi_6_runtime_records_are_declared() {
     // so nothing here can name it.
     assert!(guids.contains(&0x42_c478), "{guids:#x?}");
     assert!(!guids.contains(&0x42_0864), "{guids:#x?}");
+}
+
+/// Reads a committed sample, failing when it is absent.
+fn committed(rel: &str) -> Vec<u8> {
+    load(rel).unwrap_or_else(|| panic!("committed sample {rel} is missing"))
+}
+
+/// A `jmp [reg*4 + table]` whose jump table follows it puts the table's
+/// address one pointer past the instruction's own operand, which is the shape
+/// of a Delphi type record's self-referencing cell. `bcb6/deep.exe` holds one
+/// at `0x40fff9`: `jmp [eax*4 + 0x410000]`, then the table, whose first entry
+/// `0x4101dd` reads as Kind byte `0xdd`, a one-character name and a record.
+/// That record is no type, so neither `types()` nor `structure_extents` states
+/// it, and the table stays free for the code that owns it.
+#[test]
+fn a_jump_table_operand_is_not_a_type_cell() {
+    let data = committed("bcb6/deep.exe");
+    let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
+    let ctx = bin.ctx();
+    let at = |va: u64, len: usize| {
+        let start = ctx.va_to_file(va).expect("mapped");
+        &data[start..start + len]
+    };
+    assert_eq!(at(0x40_fff9, 3), [0xff, 0x24, 0x85], "jmp [eax*4 + disp32]");
+    assert_eq!(at(0x40_fffc, 4), 0x41_0000u32.to_le_bytes(), "its operand");
+    assert_eq!(at(0x41_0000, 1), [0xdd], "the table's first entry");
+    assert!(
+        bin.types()
+            .iter()
+            .all(|detail| detail.header().va != 0x41_0000),
+        "the jump table is read as a type record"
+    );
+    assert!(
+        bin.structure_extents()
+            .iter()
+            .all(|structure| structure.extent.end <= 0x40_fff9
+                || 0x41_0003 <= structure.extent.start),
+        "a structure covers the jump table's first entry"
+    );
+}
+
+/// Light Alloy holds two of those jump tables, at `0x4201d4` and `0x4afea8`;
+/// neither is stated as a type record or in any extent.
+#[test]
+fn delphi_7_jump_tables_are_not_type_records() {
+    let Some(data) = load("lightalloy/LA.exe") else {
+        eprintln!("skipping: sample lightalloy/LA.exe missing");
+        return;
+    };
+    let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
+    let types = bin.types();
+    let extents = bin.structure_extents();
+    for table in [0x42_01d4u64, 0x4a_fea8] {
+        assert!(
+            types.iter().all(|detail| detail.header().va != table),
+            "{table:#x} is read as a type record"
+        );
+        assert!(
+            extents
+                .iter()
+                .all(|structure| structure.extent.end <= table - 4
+                    || table + 3 <= structure.extent.start),
+            "a structure covers {table:#x}"
+        );
+    }
+}
+
+/// Checks that no type record of one sample is of kind `Unknown`, which is
+/// not a valid type info: every one that decodes names a real kind.
+fn check_no_unknown_types(data: &[u8], rel: &str) {
+    let bin = DelphiBinary::parse(data).expect("a Delphi or FPC binary");
+    let types = bin.types();
+    assert!(!types.is_empty(), "{rel}: no types");
+    for detail in &types {
+        let header = detail.header();
+        assert_ne!(
+            header.kind,
+            TypeKind::Unknown,
+            "{rel}: {:#x} {:?} (kind byte {:#x})",
+            header.va,
+            header.name(),
+            header.kind_byte
+        );
+    }
+}
+
+/// The committed samples must be present. The gitignored corpus is optional,
+/// as this file's header states, and a skipped sample is named.
+#[test]
+fn no_sample_type_record_is_of_unknown_kind() {
+    for rel in [
+        "bcb6/deep.exe",
+        "bcb6/gtforms.exe",
+        "d13/win32/gtforms.exe",
+        "d13/win64/gtforms.exe",
+    ] {
+        check_no_unknown_types(&committed(rel), rel);
+    }
+    for rel in [
+        "lightalloy/LA.exe",
+        "idr-builds/Idr64.exe",
+        "heidisql/portable_x64/heidisql.exe",
+        "known-rtti/known.win32.exe",
+        "doublecmd/linux_x86_64/doublecmd.elf",
+    ] {
+        match load(rel) {
+            Some(data) => check_no_unknown_types(&data, rel),
+            None => eprintln!("skipping: sample {rel} missing"),
+        }
+    }
+}
+
+/// Checks the init tables of one sample: each is a record of Kind `tkRecord`
+/// with an empty name, a size, a managed-field count and as many pairs of two
+/// pointers, then, when the sample's compiler emits it (`with_operators`), the
+/// operator section of `NumOps` and as many pointers. Its extent ends where
+/// the stored counts say, whatever they are, and the next structure the
+/// binary states starts exactly there. Returns how many tables the sample
+/// states.
+fn check_init_tables(data: &[u8], rel: &str, with_operators: bool) -> usize {
+    let bin = DelphiBinary::parse(data).expect("a Delphi binary");
+    assert_eq!(
+        bin.init_table_layout(),
+        if with_operators {
+            InitTableLayout::WithOperators
+        } else {
+            InitTableLayout::ManagedFields
+        },
+        "{rel}: layout"
+    );
+    let pointer = u64::try_from(bin.ctx().pointer_size().expect("a pointer size")).expect("fits");
+    let extents = bin.structure_extents();
+    let tables: Vec<&StructureExtent> = extents
+        .iter()
+        .filter(|structure| structure.kind == StructureKind::InitTable)
+        .collect();
+    let mut starts: HashSet<u64> = HashSet::new();
+    let mut followed = 0usize;
+    for class in bin.classes().iter() {
+        let Some(table) = bin.init_table(class) else {
+            continue;
+        };
+        starts.insert(class.vmt.init_table);
+        let stated = tables
+            .iter()
+            .find(|structure| structure.extent.start == class.vmt.init_table)
+            .unwrap_or_else(|| panic!("{rel}: {} has no init table extent", class.name()));
+        let held = bytes(&bin, stated);
+        assert_eq!(held[0], 0x0e, "{rel}: {} Kind byte", class.name());
+        assert_eq!(held[1], 0, "{rel}: {} name length", class.name());
+        let count = u64::from(u32::from_le_bytes(
+            held[6..10].try_into().expect("four bytes"),
+        ));
+        assert_eq!(
+            count,
+            u64::try_from(table.managed_fields.len()).expect("fits"),
+            "{rel}: {} managed fields",
+            class.name()
+        );
+        let pairs_end = 10 + count * 2 * pointer;
+        let expected = if with_operators {
+            let num_ops = u64::from(
+                *held
+                    .get(usize::try_from(pairs_end).expect("fits"))
+                    .unwrap_or_else(|| panic!("{rel}: {} has no NumOps", class.name())),
+            );
+            assert!(num_ops <= 4, "{rel}: {} NumOps {num_ops}", class.name());
+            assert_eq!(
+                table.operators.is_some(),
+                num_ops > 0,
+                "{rel}: {} operators",
+                class.name()
+            );
+            pairs_end + 1 + num_ops * pointer
+        } else {
+            assert!(table.operators.is_none(), "{rel}: {}", class.name());
+            pairs_end
+        };
+        assert_eq!(
+            stated.extent.end - stated.extent.start,
+            expected,
+            "{rel}: {} extent",
+            class.name()
+        );
+        let next = extents
+            .iter()
+            .map(|structure| structure.extent.start)
+            .filter(|&start| start >= stated.extent.end)
+            .min();
+        if let Some(next) = next {
+            assert_eq!(
+                next,
+                stated.extent.end,
+                "{rel}: {} is not followed by the next structure",
+                class.name()
+            );
+            followed += 1;
+        }
+    }
+    assert_eq!(tables.len(), starts.len(), "{rel}: init table extents");
+    assert!(
+        followed > 0,
+        "{rel}: no init table is followed by a structure"
+    );
+    for table in &tables {
+        for other in extents
+            .iter()
+            .filter(|structure| structure.kind != StructureKind::InitTable)
+        {
+            assert!(
+                table.extent.end <= other.extent.start || other.extent.end <= table.extent.start,
+                "{rel}: init table {:#x?} across {:?} {:#x?}",
+                table.extent,
+                other.kind,
+                other.extent
+            );
+        }
+    }
+    tables.len()
+}
+
+/// Delphi 6 ends an init table at its last managed field; Delphi 13, on both
+/// Win32 and Win64, follows it with the operator section.
+#[test]
+fn delphi_init_tables_end_where_their_count_does() {
+    for (rel, with_operators) in [
+        ("bcb6/deep.exe", false),
+        ("bcb6/gtforms.exe", false),
+        ("d13/win32/gtforms.exe", true),
+        ("d13/win64/gtforms.exe", true),
+    ] {
+        let data = committed(rel);
+        assert!(
+            check_init_tables(&data, rel, with_operators) > 0,
+            "{rel}: no init table"
+        );
+    }
+}
+
+/// The gitignored corpus holds the other compilers: the Delphi 12 builds of
+/// HeidiSQL and the DelphiLint client (36.0), dated by their build strings,
+/// and two binaries no build string dates, HeidiSQL's Delphi XE5 build and
+/// the C++Builder build of IDR64, whose own tables show that they end at
+/// their managed fields.
+#[test]
+fn delphi_init_tables_follow_each_compilers_layout() {
+    for (rel, with_operators) in [
+        ("heidisql/portable_x86_xe5/heidisql.unpacked.exe", false),
+        ("heidisql/portable_x64/heidisql.exe", true),
+        ("delphilint/DelphiLintClient-1.3.0-Athens.bpl", true),
+        ("idr-builds/Idr64.exe", false),
+    ] {
+        match load(rel) {
+            Some(data) => {
+                assert!(check_init_tables(&data, rel, with_operators) > 0, "{rel}");
+            }
+            None => eprintln!("skipping: sample {rel} missing"),
+        }
+    }
+}
+
+/// Returns `data` with its Delphi build string overwritten with zero bytes,
+/// so no compiler version dates the binary.
+fn without_build_string(mut data: Vec<u8>) -> Vec<u8> {
+    let marker = b"Embarcadero Delphi for ";
+    let start = data
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .expect("a build string");
+    let len = data[start..]
+        .iter()
+        .position(|&byte| byte == 0)
+        .expect("a terminated build string");
+    data[start..start + len].fill(0);
+    data
+}
+
+/// Checks that `bin`, which no compiler version dates, reads its init tables
+/// with the operator section, and that the reading without it is refuted by
+/// the binary itself: each table then ends one byte short of the structure
+/// that follows it.
+fn check_undated_with_operators(data: &[u8], rel: &str) -> usize {
+    let bin = DelphiBinary::parse(data).expect("a Delphi binary");
+    assert_eq!(
+        bin.compiler().and_then(|info| info.version),
+        None,
+        "{rel}: dated"
+    );
+    let tables = check_init_tables(data, rel, true);
+    let extents = bin.structure_extents();
+    let mut short = 0usize;
+    for class in bin.classes().iter() {
+        let Some(table) =
+            RecordInfo::init_table_extent(bin.ctx(), &class.vmt, InitTableLayout::ManagedFields)
+        else {
+            continue;
+        };
+        if let Some(next) = extents
+            .iter()
+            .map(|structure| structure.extent.start)
+            .filter(|&start| start > table.start)
+            .min()
+        {
+            assert_eq!(next, table.end + 1, "{rel}: {}", class.name());
+            short += 1;
+        }
+    }
+    assert!(short > 0, "{rel}: no table is followed");
+    tables
+}
+
+/// A binary no compiler version dates shows its init table layout by its own
+/// tables. The committed Delphi 13 programs with their build strings zeroed
+/// read the operator section, as their dated originals do, and the committed
+/// C++Builder 6 programs, whose marker carries no version, end every table at
+/// its managed fields.
+#[test]
+fn undated_init_tables_show_their_layout() {
+    for rel in ["d13/win32/gtforms.exe", "d13/win64/gtforms.exe"] {
+        let dated = check_init_tables(&committed(rel), rel, true);
+        let undated = check_undated_with_operators(&without_build_string(committed(rel)), rel);
+        assert_eq!(undated, dated, "{rel}: tables");
+    }
+    for rel in ["bcb6/deep.exe", "bcb6/gtforms.exe"] {
+        let data = committed(rel);
+        let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
+        assert_eq!(
+            bin.compiler().and_then(|info| info.version),
+            None,
+            "{rel}: dated"
+        );
+        assert!(check_init_tables(&data, rel, false) > 0, "{rel}");
+    }
+}
+
+/// The RAD Studio 13 command-line compiler carries only the product marker
+/// `Embarcadero RAD Studio 37.0`, which dates nothing, and imports no RTL
+/// package; its 65 init tables show the operator section. Read from the
+/// install `UNDELPHI_D13` names.
+#[test]
+fn undated_delphi_13_compiler_reads_the_operator_section() {
+    let Some(root) = env::var_os("UNDELPHI_D13") else {
+        eprintln!("skipping: UNDELPHI_D13 not set");
+        return;
+    };
+    let path = Path::new(&root).join("bin/dcc32.EXE");
+    let Ok(data) = fs::read(&path) else {
+        eprintln!("skipping: {} missing", path.display());
+        return;
+    };
+    assert_eq!(check_undated_with_operators(&data, "dcc32.EXE"), 65);
+}
+
+/// Light Alloy's 124 init tables hold 3,640 bytes between them, in the code
+/// section among the routines.
+#[test]
+fn delphi_7_init_tables_are_declared() {
+    let Some(data) = load("lightalloy/LA.exe") else {
+        eprintln!("skipping: sample lightalloy/LA.exe missing");
+        return;
+    };
+    assert_eq!(check_init_tables(&data, "lightalloy/LA.exe", false), 124);
 }

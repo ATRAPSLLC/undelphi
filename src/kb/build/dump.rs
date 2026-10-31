@@ -5,10 +5,11 @@ use std::borrow::Cow;
 
 use crate::{
     dcu::{DeclId, Version},
-    kb::{Dump, Fixup, FixupKind},
+    kb::{
+        Dump, Fixup, FixupKind,
+        build::{UnitBuilder, text},
+    },
 };
-
-use super::{UnitBuilder, text};
 
 impl UnitBuilder<'_> {
     /// A declaration's bytes, relocation mask and relocations.
@@ -64,9 +65,18 @@ impl UnitBuilder<'_> {
     }
 
     /// The knowledge-base letter of a DCU fixup kind.
+    ///
+    /// Before Delphi 2010 the three kinds are `A`, `J` and `D`. From 2010 a
+    /// relative call or jump (kind 5) is still `J` and every other kind is
+    /// written as its digit, `'0' + kind`: `4`, `6`, the Win64 `G` (`0x17`),
+    /// and the block-end marker `A` (`0x11`), as the published `kb2010` -
+    /// `kb2014` and `syskb2012` - `syskb2014` files hold them.
     pub fn fixup_kind(&self, kind: u8) -> FixupKind {
         if self.unit.version.delphi_at_least(Version::DELPHI_2010) {
-            FixupKind::Other(kind)
+            match kind {
+                5 => FixupKind::Jump,
+                other => FixupKind::Other(other.saturating_add(b'0')),
+            }
         } else {
             match kind {
                 1 => FixupKind::Address,

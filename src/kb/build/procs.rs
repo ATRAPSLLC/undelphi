@@ -3,10 +3,11 @@
 
 use crate::{
     dcu::{self, CallConv, Decl, DeclKind, MethodKind},
-    kb::{Arg, ArgTag, CallKind, DumpType, Proc, ProcKind},
+    kb::{
+        Arg, ArgTag, CallKind, DumpType, Proc, ProcKind,
+        build::{UnitBuilder, names::dotted, text},
+    },
 };
-
-use super::{UnitBuilder, names::dotted, text};
 
 impl UnitBuilder<'_> {
     /// Appends a record for every routine of the unit, in declaration

@@ -2,10 +2,11 @@
 
 use crate::{
     dcu::{self, DeclKind},
-    kb::{ResString, Var, VarKind},
+    kb::{
+        ResString, Var, VarKind,
+        build::{UnitBuilder, names::is_dots, text, values::ansi_string_text},
+    },
 };
-
-use super::{UnitBuilder, names::is_dots, text, values::ansi_string_text};
 
 impl UnitBuilder<'_> {
     /// Appends a record for every variable and thread variable of the

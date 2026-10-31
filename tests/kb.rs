@@ -20,10 +20,10 @@ use std::{
 };
 
 use undelphi::{
-    dcu::library::Library,
+    dcu::{Version, library::Library},
     kb::{
-        self, CallKind, Contents, Dump, Fixup, FixupKind, Format, KnowledgeBase, Module, Proc,
-        ProcKind, Record, Section, Text, UnitFile, cmp_ignore_case,
+        self, CallKind, Contents, Dump, DumpType, Fixup, FixupKind, Format, KnowledgeBase, Module,
+        Proc, ProcKind, Record, Section, Text, UnitFile, cmp_ignore_case,
     },
 };
 
@@ -245,6 +245,201 @@ fn dump_matching_ignores_relocated_bytes() {
     assert!(dump.matches(&[0xE8, 0x12, 0x34, 0x56, 0x78, 0xC3, 0x90]));
     assert!(!dump.matches(&[0xE9, 0x12, 0x34, 0x56, 0x78, 0xC3]));
     assert!(!dump.matches(&[0xE8, 0x12]));
+}
+
+/// A routine record of `name` whose dump holds a relocation of each of
+/// `kinds`.
+fn proc_with(name: &'static str, dump_type: DumpType, kinds: &[FixupKind]) -> Proc<'static> {
+    let fixups: Vec<Fixup<'static>> = kinds
+        .iter()
+        .zip(0u32..)
+        .map(|(&kind, i)| Fixup {
+            kind,
+            offset: 4 * i,
+            name: Text::from("Target"),
+        })
+        .collect();
+    let size = 4 * kinds.len().max(1);
+    Proc {
+        module: 0,
+        name: Text::from(name),
+        embedded: false,
+        dump_type,
+        kind: ProcKind::Procedure,
+        call: CallKind::Register,
+        vproc: 0,
+        type_def: Text::default(),
+        dump: Dump::new(vec![0; size].into(), vec![0xFF; size].into(), fixups).unwrap(),
+        args: Vec::new(),
+        locals: None,
+    }
+}
+
+/// The records of routines `name` in `unit`.
+fn records<'a>(kb: &KnowledgeBase<'a>, unit: &str, name: &str) -> Vec<Proc<'a>> {
+    kb.procs()
+        .named(name.as_bytes())
+        .into_iter()
+        .filter_map(|i| kb.procs().get(i).ok())
+        .filter(|p| {
+            kb.module(p.module)
+                .ok()
+                .flatten()
+                .is_some_and(|m| m.name.to_string().eq_ignore_ascii_case(unit))
+        })
+        .collect()
+}
+
+/// The record of routine `name` in `unit`.
+fn record<'a>(kb: &KnowledgeBase<'a>, unit: &str, name: &str) -> Proc<'a> {
+    records(kb, unit, name).into_iter().next().unwrap()
+}
+
+#[test]
+fn unnamed_blocks_without_a_call_are_data() {
+    let (address, data, jump) = (FixupKind::Address, FixupKind::Data, FixupKind::Jump);
+    let table = proc_with("_NF__AD4", DumpType::Code, &[address, data, address, data]);
+    let thunks = proc_with("_NF__2ED", DumpType::Code, &[jump, jump, address]);
+    let string = proc_with("_NF__E01", DumpType::Code, &[]);
+    let leaf = proc_with("Leaf", DumpType::Code, &[address, data]);
+    let anonymous = proc_with("_DF_.", DumpType::Code, &[]);
+    let flagged = proc_with("_NF__43B", DumpType::Data, &[jump]);
+    for release in [
+        Version::DELPHI_4,
+        Version::DELPHI_6,
+        Version::DELPHI_7,
+        Version::DELPHI_2005,
+    ] {
+        assert!(!table.holds_code(release), "{release:?}");
+        assert!(!string.holds_code(release), "{release:?}");
+        assert!(thunks.holds_code(release), "{release:?}");
+        assert!(leaf.holds_code(release), "{release:?}");
+        assert!(anonymous.holds_code(release), "{release:?}");
+        assert!(!flagged.holds_code(release), "{release:?}");
+    }
+    // Delphi 3 files its unnamed methods under the same names.
+    assert!(table.holds_code(Version::DELPHI_3));
+    assert!(string.holds_code(Version::DELPHI_3));
+    assert!(!flagged.holds_code(Version::DELPHI_3));
+}
+
+/// In the published Delphi 6 file the tables and strings are filed as code,
+/// and the interface method tables, whose thunks jump to the methods, are
+/// the code among the unnamed blocks.
+#[test]
+fn kb6_unnamed_blocks() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/idr/win32/kb6.bin");
+    let Ok(data) = fs::read(&path) else {
+        eprintln!("skipping: kb6.bin missing");
+        return;
+    };
+    let kb = KnowledgeBase::parse(&data).unwrap();
+    for (unit, name) in [
+        ("SysUtils", "_NF__AD4"),
+        ("SysUtils", "_NF__AD5"),
+        ("Dialogs", "_NF__4C2"),
+        ("Classes", "_NF__E01"),
+        ("Forms", "_NF__A31"),
+    ] {
+        let block = record(&kb, unit, name);
+        assert_eq!(block.dump_type, DumpType::Code, "{unit}.{name}");
+        assert!(!block.holds_code(Version::DELPHI_6), "{unit}.{name}");
+    }
+    for (unit, name) in [("SysUtils", "_NF__2ED"), ("SysUtils", "_NF__2F4")] {
+        let thunks = record(&kb, unit, name);
+        assert!(thunks.holds_code(Version::DELPHI_6), "{unit}.{name}");
+    }
+    assert!(record(&kb, "SysUtils", "DivMod").holds_code(Version::DELPHI_6));
+}
+
+/// A record of `name` whose dump is `code`, relocation free.
+fn proc_of(name: &'static str, code: Vec<u8>) -> Proc<'static> {
+    let mut proc = proc_with(name, DumpType::Code, &[]);
+    proc.dump = Dump::new(code.clone().into(), vec![0; code.len()].into(), Vec::new()).unwrap();
+    proc
+}
+
+/// A Borland C++ type descriptor: size, mask, name offset, then the name.
+fn descriptor(name: &str) -> Vec<u8> {
+    let mut code = vec![0, 0, 0, 0, 3, 0, 8, 0];
+    code.extend_from_slice(name.as_bytes());
+    code.push(0);
+    let size = u32::try_from(code.len()).unwrap();
+    code[..4].copy_from_slice(&size.to_le_bytes());
+    code
+}
+
+#[test]
+fn type_descriptors_are_data() {
+    let release = Version::DELPHI_6;
+    // The descriptor is data under `_DF_.` only.
+    assert!(!proc_of("_DF_.", descriptor("SQLMetaData")).holds_code(release));
+    assert!(proc_of("Leaf", descriptor("SQLMetaData")).holds_code(release));
+    // Machine code is not a descriptor, a leaf routine without a
+    // relocation included.
+    let leaf = vec![0x55, 0x8B, 0xEC, 0x5D, 0xC3];
+    assert!(proc_of("_DF_.", leaf).holds_code(release));
+    // A mask, a name offset that does not point at a name, and a name
+    // without its end are none either.
+    let mut other_mask = descriptor("T");
+    other_mask[4] = 1;
+    let mut empty_name = descriptor("T");
+    empty_name[8] = 0;
+    let mut outside = descriptor("T");
+    outside[6] = 0x40;
+    let mut inside_header = descriptor("T");
+    inside_header[6] = 4;
+    let mut unended = descriptor("T");
+    unended.pop();
+    for code in [other_mask, empty_name, outside, inside_header, unended] {
+        assert!(proc_of("_DF_.", code).holds_code(release));
+    }
+}
+
+/// The published Delphi 6 file files the C++ type descriptors of `MidasLib`
+/// and the dbExpress drivers as code under the name `_DF_.`, next to the C
+/// routines of the same units and of `crtl` and `jpeg`, which are code.
+#[test]
+fn kb6_type_descriptors() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/idr/win32/kb6.bin");
+    let Ok(data) = fs::read(&path) else {
+        eprintln!("skipping: kb6.bin missing");
+        return;
+    };
+    let kb = KnowledgeBase::parse(&data).unwrap();
+    // The records of `unit` as (data, code) counts.
+    let held = |unit: &str| -> (usize, usize) {
+        let all = records(&kb, unit, "_DF_.");
+        assert!(all.iter().all(|p| p.dump_type == DumpType::Code), "{unit}");
+        let code = all
+            .iter()
+            .filter(|p| p.holds_code(Version::DELPHI_6))
+            .count();
+        (all.len() - code, code)
+    };
+    assert_eq!(held("MidasLib"), (59, 33));
+    assert_eq!(held("DBExpDB2"), (12, 15));
+    for unit in ["crtl", "jpeg", "ZLib", "bde"] {
+        let (data, code) = held(unit);
+        assert_eq!((data, code > 0), (0, true), "{unit}");
+    }
+}
+
+/// The `SysInit` leaf routines of the Delphi 2010 system file, which have
+/// no relocation, are code.
+#[test]
+fn syskb2014_leaf_routines_are_code() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/idr/win32/syskb2014.bin");
+    let Ok(data) = fs::read(&path) else {
+        eprintln!("skipping: syskb2014.bin missing");
+        return;
+    };
+    let kb = KnowledgeBase::parse(&data).unwrap();
+    let leaves = records(&kb, "SysInit", "_DF_.");
+    assert!(!leaves.is_empty());
+    for leaf in &leaves {
+        assert!(leaf.holds_code(Version::DELPHI_2010));
+    }
 }
 
 #[test]

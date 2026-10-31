@@ -44,6 +44,7 @@
 use std::{collections::HashMap, ops::Range, str};
 
 use crate::{
+    detection::{Compiler, CompilerInfo},
     extrtti::{AttributeEntry, Visibility, read_attr_data},
     formats::BinaryContext,
     interfaces::Guid,
@@ -51,6 +52,7 @@ use crate::{
         MAX_ENUM_RANGE, MAX_IDENTIFIER_BYTES, MAX_METHOD_PARAMS, MAX_METHODS_PER_RECORD,
         MAX_RECORD_FIELDS, MAX_RECORD_MANAGED_FIELDS,
     },
+    signatures::{MethodKind as SignatureKind, ParamFlags},
     util::{
         GENERIC_NAME_CHARS, as_identifier, deref_va, read_ptr, read_short_string_at_file,
         read_short_string_at_va, read_u16, read_u32,
@@ -121,8 +123,8 @@ fn fpc_kind_from_byte(byte: u8) -> TypeKind {
         23 => TypeKind::Procedure, // tkProcVar
         24 => TypeKind::UString,
         25 => TypeKind::WChar, // tkUChar
-        // tkHelper / tkFile have no Delphi equivalent.
-        26 | 27 => TypeKind::Unknown,
+        26 => TypeKind::Helper,
+        27 => TypeKind::File,
         28 => TypeKind::ClassRef,
         29 => TypeKind::Pointer,
         _ => TypeKind::Unknown,
@@ -137,7 +139,8 @@ fn fpc_kind_from_byte(byte: u8) -> TypeKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TypeKind {
-    /// Unknown / not a valid type info.
+    /// Unknown / not a valid type info: a Kind byte the flavor's enumeration
+    /// does not assign. [`TypeHeader::from_va`] returns no header of this kind.
     Unknown = 0,
     /// Signed / unsigned integer types (`Integer`, `Byte`, …).
     Integer = 1,
@@ -183,6 +186,15 @@ pub enum TypeKind {
     Procedure = 21,
     /// Managed records (Delphi 10.4+).
     MRecord = 22,
+    /// Free Pascal's `tkHelper`: a class or record helper. Delphi has no such
+    /// kind, so [`TypeKind::from_u8`] never returns it. Only the header is
+    /// decoded: the kind's body (two `PPTypeInfo` references, a property
+    /// count, the unit name and the property data) is not read.
+    Helper = 23,
+    /// Free Pascal's `tkFile`, a file type, which the compiler does not emit
+    /// today. Delphi has no such kind, so [`TypeKind::from_u8`] never returns
+    /// it. Only the header is decoded.
+    File = 24,
 }
 
 impl TypeKind {
@@ -431,6 +443,12 @@ impl<'a> TypeHeader<'a> {
     }
 
     /// Decodes the type header (Kind + Name) at a `PTypeInfo` VA.
+    ///
+    /// `None` when the bytes are not a type record: a Kind byte that names no
+    /// [`TypeKind`] ([`TypeKind::Unknown`] is not a valid type info), or a
+    /// name that is not an identifier. The type closure and the self-cell
+    /// pass of [`crate::DelphiBinary::types`] both decode through here, so
+    /// neither returns a record of kind [`TypeKind::Unknown`].
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
         if type_info_va == 0 {
             return None;
@@ -439,6 +457,9 @@ impl<'a> TypeHeader<'a> {
         let data = ctx.data();
         let kind_byte = *data.get(file_off)?;
         let kind = classify_kind_byte(kind_byte, flavor);
+        if kind == TypeKind::Unknown {
+            return None;
+        }
         let name_off = file_off.checked_add(1)?;
         let name = read_short_string_at_file(data, name_off)?;
         // C++Builder emits `__closure` typedefs as nameless tkMethod records
@@ -498,6 +519,19 @@ pub enum OrdinalType {
 }
 
 impl OrdinalType {
+    /// The width in bytes and the signedness; `None` for an unknown width.
+    pub fn width(self) -> Option<(u8, bool)> {
+        Some(match self {
+            Self::SByte => (1, true),
+            Self::UByte => (1, false),
+            Self::SWord => (2, true),
+            Self::UWord => (2, false),
+            Self::SLong => (4, true),
+            Self::ULong => (4, false),
+            Self::Unknown(_) => return None,
+        })
+    }
+
     fn from_u8(b: u8) -> Self {
         match b {
             0 => OrdinalType::SByte,
@@ -982,7 +1016,8 @@ pub struct RecordInfo<'a> {
     /// synthetic `vmtInitTable` record).
     pub fields: Vec<RecordField<'a>>,
     /// The record's operator table (`RecOps`, Delphi 10.4+ managed
-    /// records); `None` when the record has none.
+    /// records, and on [`InitTableLayout::WithOperators`] runtimes a class's
+    /// init table); `None` when the record has none.
     pub operators: Option<RecordOperators>,
     /// The record's attributes (Delphi 2010+).
     pub attributes: Vec<AttributeEntry<'a>>,
@@ -1058,6 +1093,34 @@ impl<'a> RecordMethod<'a> {
     /// The declared visibility.
     pub fn visibility(&self) -> Visibility {
         Visibility::from_flags(self.flags >> 2)
+    }
+
+    /// What the method is, as a class method's signature names it: a
+    /// `procedure` or `function` by whether its signature states a result, a
+    /// `class static` one likewise as a class procedure or function, a
+    /// constructor, or an operator.
+    pub fn method_kind(&self) -> SignatureKind {
+        let has_result = self
+            .signature
+            .as_ref()
+            .is_some_and(|s| s.result_type_ref != 0);
+        match (self.kind(), has_result) {
+            (RecordMethodKind::Method, false) => SignatureKind::Procedure,
+            (RecordMethodKind::Method, true) => SignatureKind::Function,
+            (RecordMethodKind::Static, false) => SignatureKind::ClassProcedure,
+            (RecordMethodKind::Static, true) => SignatureKind::ClassFunction,
+            (RecordMethodKind::Constructor, _) => SignatureKind::Constructor,
+            (RecordMethodKind::Operator, _) => SignatureKind::OperatorOverload,
+        }
+    }
+
+    /// Whether the method has a `Self`: an instance method or a constructor
+    /// does; a `class static` method or an operator does not.
+    pub fn has_self(&self) -> bool {
+        matches!(
+            self.kind(),
+            RecordMethodKind::Method | RecordMethodKind::Constructor
+        )
     }
 }
 
@@ -1201,6 +1264,118 @@ pub enum TypeDetail<'a> {
     Int64(Int64Info<'a>),
     /// Known Kind but not yet a dedicated decoder - just the header.
     Other(TypeHeader<'a>),
+}
+
+/// How a value of a type is held: the machine shape a consumer lays it out
+/// as, when the type's name adds nothing to it.
+///
+/// [`TypeDetail::storage`] answers it for the types whose value is a scalar
+/// or an untyped pointer. A type a consumer should describe by its name or
+/// declaration has none: a record, a static or dynamic array, a set, a typed
+/// pointer, a method-of-object pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Storage {
+    /// An integer of `bytes` bytes. `Comp` and `Currency` are held as a
+    /// signed 64-bit integer, which is what they are in memory.
+    Int {
+        /// The width in bytes.
+        bytes: u8,
+        /// Whether it is signed.
+        signed: bool,
+    },
+    /// The `Boolean` type: one byte, 0 or 1. `ByteBool`, `WordBool` and
+    /// `LongBool` are [`Storage::Int`] of their width, any non-zero value
+    /// being true.
+    Bool,
+    /// A character of `bytes` bytes: `AnsiChar` 1, `WideChar` 2.
+    Char {
+        /// The width in bytes.
+        bytes: u8,
+    },
+    /// An IEEE floating-point value of `bytes` bytes: 4, 8, or 10 for the
+    /// 32-bit `Extended` (Win64 has no 80-bit type and makes it a `Double`).
+    Float {
+        /// The width in bytes.
+        bytes: u8,
+    },
+    /// A pointer, with what it points at.
+    Pointer(Pointee),
+}
+
+/// What a [`Storage::Pointer`] points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pointee {
+    /// Nothing a consumer can lay out: a procedure, a class reference.
+    Opaque,
+    /// The characters of a long string: `AnsiString` 1-byte, `UnicodeString`
+    /// and `WideString` 2-byte.
+    Chars {
+        /// The width of one character in bytes.
+        bytes: u8,
+    },
+    /// An instance of the type itself: a class reference is a pointer to
+    /// the object, named by the type's own name.
+    Instance,
+    /// An interface reference: a pointer to the object's interface table
+    /// slot, named by the interface's name. Unlike a class reference it is
+    /// a managed value - reference-counted, and returned through a hidden
+    /// parameter as a string is.
+    Interface,
+}
+
+impl TypeDetail<'_> {
+    /// How a value of this type is held, for a binary whose pointers are
+    /// `pointer_size` bytes; `None` for a type described by its name or
+    /// declaration, or of an unknown width (see [`Storage`]).
+    pub fn storage(&self, pointer_size: u64) -> Option<Storage> {
+        Some(match self {
+            TypeDetail::Ordinal(info) => match info.header.kind {
+                TypeKind::Char => Storage::Char { bytes: 1 },
+                TypeKind::WChar => Storage::Char { bytes: 2 },
+                _ => {
+                    let (bytes, signed) = info.ord.width()?;
+                    Storage::Int { bytes, signed }
+                }
+            },
+            // `ByteBool` / `WordBool` / `LongBool` declare -1 as their low
+            // bound; `Boolean` is the one other enumeration that is a truth
+            // value.
+            TypeDetail::Enumeration(info) if info.min < 0 => {
+                let (bytes, signed) = info.ord.width()?;
+                Storage::Int { bytes, signed }
+            }
+            TypeDetail::Enumeration(info) if info.header.name() == "Boolean" => Storage::Bool,
+            TypeDetail::Int64(info) => Storage::Int {
+                bytes: 8,
+                signed: !info.unsigned,
+            },
+            TypeDetail::Float(info) => match info.float_type {
+                FloatType::Single => Storage::Float { bytes: 4 },
+                FloatType::Double => Storage::Float { bytes: 8 },
+                FloatType::Extended if pointer_size == 8 => Storage::Float { bytes: 8 },
+                FloatType::Extended => Storage::Float { bytes: 10 },
+                FloatType::Comp | FloatType::Currency => Storage::Int {
+                    bytes: 8,
+                    signed: true,
+                },
+                FloatType::Unknown(_) => return None,
+            },
+            TypeDetail::String(info) => Storage::Pointer(Pointee::Chars {
+                bytes: if info.header.kind == TypeKind::LString {
+                    1
+                } else {
+                    2
+                },
+            }),
+            TypeDetail::Other(header) if header.kind == TypeKind::WString => {
+                Storage::Pointer(Pointee::Chars { bytes: 2 })
+            }
+            TypeDetail::Class(_) => Storage::Pointer(Pointee::Instance),
+            TypeDetail::Interface(_) => Storage::Pointer(Pointee::Interface),
+            TypeDetail::Procedure(_) | TypeDetail::ClassRef(_) => Storage::Pointer(Pointee::Opaque),
+            _ => return None,
+        })
+    }
 }
 
 impl<'a> TypeDetail<'a> {
@@ -1816,6 +1991,12 @@ pub struct SignatureParam<'a> {
 }
 
 impl<'a> SignatureParam<'a> {
+    /// The parameter's passing flags, read as Delphi stores them (the
+    /// procedure signatures this decodes are Delphi 2010+ RTTI).
+    pub fn param_flags(&self) -> ParamFlags {
+        ParamFlags::from_delphi(self.flags)
+    }
+
     /// Parameter name as `&str`: UTF-8, as Delphi 2009 and later store names, or
     /// `"<non-ascii>"` when the bytes are not valid UTF-8.
     #[inline]
@@ -1866,6 +2047,128 @@ pub enum StringLayout {
     Plain,
     /// ANSI string records carry a code page after their name.
     CodePaged,
+}
+
+/// Whether a Delphi runtime ends a class's init table with a record operator
+/// section.
+///
+/// An init table is a `tkRecord` with no name. Delphi 11 (compiler 35.0) and
+/// later emit `NumOps: Byte` and `RecOps[NumOps]` after its managed fields,
+/// the section every named record carries; earlier compilers stop at the
+/// last managed field. Measured on binaries of each compiler: every init
+/// table of compiler 33.0 (Delphi 10.3) and 34.0 (Delphi 10.4) ends at its
+/// last managed field, and every one of 35.0, 36.0 and 37.0 is followed by
+/// the section, whose `NumOps` is `0` in all but a few tables with managed
+/// records.
+///
+/// A binary whose compiler version is known is dated by it
+/// ([`Self::of_compiler`]). One that cannot be dated shows its layout by its
+/// own tables ([`Self::shown_by`]): the next structure starts exactly where
+/// each of its tables ends only under the layout it was built with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitTableLayout {
+    /// The table ends at its last managed field.
+    ManagedFields,
+    /// The table ends with `NumOps` and that many operator pointers.
+    WithOperators,
+}
+
+impl InitTableLayout {
+    /// The first Delphi compiler version (11 Alexandria) whose init tables
+    /// carry the operator section.
+    const FIRST_WITH_OPERATORS: u32 = 35;
+
+    /// Returns the layout the compiler `info` dates, or `None` when it
+    /// cannot date one.
+    ///
+    /// A Delphi or C++Builder build string or RTL package suffix (the two
+    /// share version numbers, and C++Builder packages carry Delphi init
+    /// tables) whose major version is 35 (Delphi 11 Alexandria) or later
+    /// selects [`Self::WithOperators`], an earlier one
+    /// [`Self::ManagedFields`]. Free Pascal emits no operator section, so it
+    /// is [`Self::ManagedFields`] whatever its version. No compiler, or a
+    /// Delphi or C++Builder marker without a version (such as the
+    /// `Embarcadero RAD Studio 37.0` copyright the RAD Studio 13 tools carry:
+    /// a product number, which equals the compiler version only from RAD
+    /// Studio 13), is `None`.
+    pub fn of_compiler(info: Option<&CompilerInfo<'_>>) -> Option<Self> {
+        let info = info?;
+        if info.compiler == Compiler::FreePascal {
+            return Some(Self::ManagedFields);
+        }
+        let major = info.version?.split('.').next()?.parse::<u32>().ok()?;
+        Some(if major >= Self::FIRST_WITH_OPERATORS {
+            Self::WithOperators
+        } else {
+            Self::ManagedFields
+        })
+    }
+
+    /// Returns the layout a binary's own Delphi init tables show, for a
+    /// binary whose compiler cannot be dated.
+    ///
+    /// `tables` are the addresses of the binary's Delphi init tables and
+    /// `stated` the extents of every other structure it states (not the init
+    /// tables, which this reads itself). [`Self::WithOperators`] is chosen
+    /// only when, read with the operator section, every table decodes and
+    /// every table that some stated structure or other table follows is
+    /// abutted by it: the first structure starting after the table's start
+    /// starts exactly at its end. A table nothing follows (the last
+    /// structure of the image) neither confirms nor refutes the layout, but
+    /// at least one table must be followed. Anything else is
+    /// [`Self::ManagedFields`], which never reads past the managed fields:
+    /// should a later runtime's tables be read that way, each is stated
+    /// `1 + pointer size x NumOps` bytes short and its operators are not
+    /// read, but no extent covers bytes that are not the table's. An
+    /// address that does not decode as a record at all is no init table and
+    /// is not counted.
+    ///
+    /// The test is all or nothing over the binary, with no threshold: a
+    /// runtime emits one layout for every table. Read with the operator
+    /// section, a table of an earlier runtime takes its `NumOps` from the
+    /// first byte of the structure that follows it, so it either fails to
+    /// decode or ends past that structure's start; read without it, a table
+    /// of a later runtime ends one byte short of the next structure.
+    ///
+    /// Costs two decodes of each init table (one under each layout) beyond
+    /// the decode the binary's layout then drives.
+    pub fn shown_by(ctx: &BinaryContext<'_>, tables: &[u64], stated: &[Range<u64>]) -> Self {
+        let mut tables = tables.to_vec();
+        tables.sort_unstable();
+        tables.dedup();
+        let mut extents = Vec::with_capacity(tables.len());
+        for &va in &tables {
+            if RecordInfo::decode(ctx, va, VmtFlavor::Delphi, Self::ManagedFields).is_none() {
+                continue;
+            }
+            let Some(extent) = RecordInfo::decode(ctx, va, VmtFlavor::Delphi, Self::WithOperators)
+                .and_then(|record| record.extent())
+            else {
+                return Self::ManagedFields;
+            };
+            extents.push(extent);
+        }
+        let mut starts: Vec<u64> = stated
+            .iter()
+            .chain(&extents)
+            .map(|extent| extent.start)
+            .collect();
+        starts.sort_unstable();
+        let mut followed = false;
+        for extent in &extents {
+            let after = starts.partition_point(|&start| start <= extent.start);
+            match starts.get(after) {
+                Some(&next) if next == extent.end => followed = true,
+                Some(_) => return Self::ManagedFields,
+                None => {}
+            }
+        }
+        if followed {
+            Self::WithOperators
+        } else {
+            Self::ManagedFields
+        }
+    }
 }
 
 /// `tkLString` / `tkUString` / `tkWString` - string RTTI record.
@@ -2263,12 +2566,26 @@ impl<'a> StringInfo<'a> {
 impl<'a> RecordInfo<'a> {
     /// Decodes a `tkRecord` record including its managed-field entries.
     ///
-    /// Accepts records with an empty on-disk name - the compiler
-    /// emits `vmtInitTable` as a synthetic `tkRecord` with no name
-    /// whose sole purpose is to enumerate the host class's managed
-    /// fields. [`TypeHeader::from_va`] rejects empty names, so we
-    /// read the header directly here.
+    /// A named record is read with its Delphi 2010+ tail. An unnamed record
+    /// (the synthetic `tkRecord` a class's `vmtInitTable` names, which
+    /// [`TypeHeader::from_va`] rejects for its empty name) is read to its
+    /// managed fields only, as [`InitTableLayout::ManagedFields`]: an init
+    /// table goes through [`RecordInfo::from_init_table`], which takes the
+    /// binary's [`InitTableLayout`] and reads the operator section a Delphi
+    /// 11 or later table ends with.
     pub fn from_va(ctx: &BinaryContext<'a>, type_info_va: u64, flavor: VmtFlavor) -> Option<Self> {
+        Self::decode(ctx, type_info_va, flavor, InitTableLayout::ManagedFields)
+    }
+
+    /// Decodes a `tkRecord` record, reading the operator section an unnamed
+    /// record (a class's init table) carries when `layout` says its runtime
+    /// emits one.
+    pub(crate) fn decode(
+        ctx: &BinaryContext<'a>,
+        type_info_va: u64,
+        flavor: VmtFlavor,
+        layout: InitTableLayout,
+    ) -> Option<Self> {
         let data = ctx.data();
         let file_off = ctx.va_to_file(type_info_va)?;
         let kind_byte = *data.get(file_off)?;
@@ -2325,6 +2642,13 @@ impl<'a> RecordInfo<'a> {
         };
         let (fields, operators, attributes, methods, end) = match tail {
             Some(t) => (t.fields, t.operators, t.attributes, t.methods, t.end),
+            None if flavor == VmtFlavor::Delphi
+                && name.is_empty()
+                && layout == InitTableLayout::WithOperators =>
+            {
+                let (operators, end) = parse_record_operators(ctx, off, ptr_size)?;
+                (Vec::new(), operators, Vec::new(), Vec::new(), end)
+            }
             None => (Vec::new(), None, Vec::new(), Vec::new(), off),
         };
         Some(Self {
@@ -2338,6 +2662,15 @@ impl<'a> RecordInfo<'a> {
             end: va_at(type_info_va, file_off, end)?,
         })
     }
+
+    /// Returns the virtual addresses of the record: its header, its size and
+    /// managed-field count, the managed fields and, when the decode read it,
+    /// the extended tail. The extent is measured from the stored count, never
+    /// from a fixed size.
+    pub fn extent(&self) -> Option<Range<u64>> {
+        let start = self.header.va;
+        (start < self.end).then_some(start..self.end)
+    }
 }
 
 /// The Delphi 2010+ part of a record's type data after its managed fields.
@@ -2350,29 +2683,23 @@ struct RecordTail<'a> {
     end: usize,
 }
 
-/// Parses the Delphi 2010+ record tail that follows the managed fields:
-/// `NumOps: u8`, `RecOps[NumOps]: ptr` (a [`RecordOperators`] table),
-/// `RecFldCnt: i32`, the fields
-/// (`TypeRef: ptr; FldOffset: NativeInt; Flags: u8; Name: ShortString;
-/// AttrData`), the record's `AttrData`, `RecMethCnt: u16` and the methods
-/// (`Flags: u8; Code: ptr; Name: ShortString; Sig: TProcedureSignature;
-/// AttrData`).
+/// Parses a record's operator section: `NumOps: u8` and `RecOps[NumOps]: ptr`,
+/// the [`RecordOperators`] table (`None` when `NumOps` is `0`). Returns the
+/// table with the file offset just past the section.
 ///
 /// Source: Delphi 13 `System.TypInfo` (`tkRecord` variant of `TTypeData`,
-/// `TRecordTypeField`, `TRecordTypeMethod`) and `System.Rtti`
-/// (`TRttiRecordType.GetDeclaredFields` / `GetDeclaredMethods`). Returns
-/// `None` if anything looks implausible, since the host record may predate
-/// this layout.
-fn parse_record_tail<'a>(
-    ctx: &BinaryContext<'a>,
+/// `System.TRecordOperatorTable`). Returns `None` when `NumOps` exceeds the
+/// four slots the table has, or an operator is not code, since the bytes are
+/// then not an operator section.
+fn parse_record_operators(
+    ctx: &BinaryContext<'_>,
     start_off: usize,
     ptr_size: usize,
-    flavor: VmtFlavor,
-) -> Option<RecordTail<'a>> {
+) -> Option<(Option<RecordOperators>, usize)> {
     let data = ctx.data();
     let num_ops = *data.get(start_off)? as usize;
     if num_ops > 4 {
-        return None; // not the extended layout
+        return None;
     }
     let mut off = start_off.checked_add(1)?;
     let mut slots = [0u64; 4];
@@ -2398,6 +2725,30 @@ fn parse_record_tail<'a>(
             assign: code(assign)?,
         })
     };
+    Some((operators, off))
+}
+
+/// Parses the Delphi 2010+ record tail that follows the managed fields:
+/// `NumOps: u8`, `RecOps[NumOps]: ptr` (a [`RecordOperators`] table),
+/// `RecFldCnt: i32`, the fields
+/// (`TypeRef: ptr; FldOffset: NativeInt; Flags: u8; Name: ShortString;
+/// AttrData`), the record's `AttrData`, `RecMethCnt: u16` and the methods
+/// (`Flags: u8; Code: ptr; Name: ShortString; Sig: TProcedureSignature;
+/// AttrData`).
+///
+/// Source: Delphi 13 `System.TypInfo` (`tkRecord` variant of `TTypeData`,
+/// `TRecordTypeField`, `TRecordTypeMethod`) and `System.Rtti`
+/// (`TRttiRecordType.GetDeclaredFields` / `GetDeclaredMethods`). Returns
+/// `None` if anything looks implausible, since the host record may predate
+/// this layout.
+fn parse_record_tail<'a>(
+    ctx: &BinaryContext<'a>,
+    start_off: usize,
+    ptr_size: usize,
+    flavor: VmtFlavor,
+) -> Option<RecordTail<'a>> {
+    let data = ctx.data();
+    let (operators, mut off) = parse_record_operators(ctx, start_off, ptr_size)?;
     let count = read_u32(data, off)? as usize;
     off = off.checked_add(4)?;
     if count > MAX_RECORD_FIELDS {
@@ -2791,6 +3142,7 @@ const MAX_INTF_METHODS: usize = 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detection::{DetectionSource, TargetArch, TargetOs};
 
     /// Locks every documented Delphi TTypeKind byte against
     /// pythia `pythia/core/structures.py:11-34`.
@@ -2857,8 +3209,11 @@ mod tests {
             (19, TypeKind::Int64),
             (21, TypeKind::DynArray),
             (24, TypeKind::UString),
+            (26, TypeKind::Helper),
+            (27, TypeKind::File),
             (28, TypeKind::ClassRef),
             (29, TypeKind::Pointer),
+            (30, TypeKind::Unknown),
         ];
         for &(byte, kind) in cases {
             assert_eq!(
@@ -2878,6 +3233,312 @@ mod tests {
         assert_eq!(TypeKind::from_u8(18), TypeKind::UString);
         assert_eq!(TypeKind::from_u8(22), TypeKind::MRecord);
         assert_eq!(TypeKind::from_u8(99), TypeKind::Unknown);
+    }
+
+    /// An x86-64 ELF image of one `PT_LOAD` segment at `0x1000` holding
+    /// `payload`, which `BinaryContext` maps to virtual addresses.
+    fn elf_with_segment(payload: &[u8]) -> Vec<u8> {
+        let mut elf = Vec::new();
+        elf.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0]);
+        elf.extend_from_slice(&[0; 8]);
+        elf.extend_from_slice(&2u16.to_le_bytes()); // e_type: ET_EXEC
+        elf.extend_from_slice(&0x3eu16.to_le_bytes()); // e_machine: x86-64
+        elf.extend_from_slice(&1u32.to_le_bytes()); // e_version
+        elf.extend_from_slice(&0x1000u64.to_le_bytes()); // e_entry
+        elf.extend_from_slice(&64u64.to_le_bytes()); // e_phoff
+        elf.extend_from_slice(&0u64.to_le_bytes()); // e_shoff
+        elf.extend_from_slice(&0u32.to_le_bytes()); // e_flags
+        elf.extend_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        elf.extend_from_slice(&56u16.to_le_bytes()); // e_phentsize
+        elf.extend_from_slice(&1u16.to_le_bytes()); // e_phnum
+        elf.extend_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        elf.extend_from_slice(&[0; 4]); // e_shnum, e_shstrndx
+        elf.extend_from_slice(&1u32.to_le_bytes()); // p_type: PT_LOAD
+        elf.extend_from_slice(&5u32.to_le_bytes()); // p_flags: R+X
+        elf.extend_from_slice(&120u64.to_le_bytes()); // p_offset
+        elf.extend_from_slice(&0x1000u64.to_le_bytes()); // p_vaddr
+        elf.extend_from_slice(&0x1000u64.to_le_bytes()); // p_paddr
+        elf.extend_from_slice(&(payload.len() as u64).to_le_bytes()); // p_filesz
+        elf.extend_from_slice(&(payload.len() as u64).to_le_bytes()); // p_memsz
+        elf.extend_from_slice(&0x1000u64.to_le_bytes()); // p_align
+        elf.extend_from_slice(payload);
+        elf
+    }
+
+    /// Free Pascal's `tkHelper` (26) and `tkFile` (27) are valid kinds: they
+    /// decode to their own [`TypeKind`] variants and their records are
+    /// returned, while a Kind byte neither flavor assigns (FPC 30, Delphi 23)
+    /// is no record.
+    #[test]
+    fn fpc_helper_and_file_records_are_returned() {
+        let mut payload = Vec::new();
+        for (kind, name) in [
+            (26u8, &b"TObjHelper"[..]),
+            (27, b"TFileType"),
+            (30, b"TOver"),
+        ] {
+            payload.push(kind);
+            payload.push(name.len() as u8);
+            payload.extend_from_slice(name);
+            payload.extend_from_slice(&[0; 8]);
+        }
+        let elf = elf_with_segment(&payload);
+        let ctx = BinaryContext::new(&elf);
+        let helper = TypeHeader::from_va(&ctx, 0x1000, VmtFlavor::Fpc).expect("tkHelper");
+        assert_eq!(
+            (helper.kind, helper.name()),
+            (TypeKind::Helper, "TObjHelper")
+        );
+        let file = TypeHeader::from_va(&ctx, 0x1000 + 2 + 10 + 8, VmtFlavor::Fpc).expect("tkFile");
+        assert_eq!((file.kind, file.name()), (TypeKind::File, "TFileType"));
+        let unassigned = 0x1000 + 20 + 19;
+        assert!(TypeHeader::from_va(&ctx, unassigned, VmtFlavor::Fpc).is_none());
+        assert!(TypeHeader::from_va(&ctx, 0x1000, VmtFlavor::Delphi).is_none());
+        let detail = TypeDetail::from_va(&ctx, 0x1000, VmtFlavor::Fpc, StringLayout::Plain)
+            .expect("a header-only detail");
+        assert!(matches!(detail, TypeDetail::Other(h) if h.kind == TypeKind::Helper));
+    }
+
+    /// A Delphi init table in the image of [`elf_with_segment`]: a Kind byte,
+    /// the empty name, a record size, one (type, offset) pair, then `ops`
+    /// bytes and a sentinel byte.
+    fn init_table_image(ops: &[u8]) -> Vec<u8> {
+        let mut payload = vec![0x0e, 0];
+        payload.extend_from_slice(&16u32.to_le_bytes()); // record size
+        payload.extend_from_slice(&1u32.to_le_bytes()); // managed field count
+        payload.extend_from_slice(&0u64.to_le_bytes()); // field type
+        payload.extend_from_slice(&8u64.to_le_bytes()); // field offset
+        payload.extend_from_slice(ops);
+        payload.push(0xaa);
+        elf_with_segment(&payload)
+    }
+
+    /// On a runtime that emits the operator section the init table ends after
+    /// `NumOps` and as many pointers, and a runtime that does not ends it at
+    /// its last managed field.
+    #[test]
+    fn init_table_extent_follows_its_layout() {
+        let mut ops = vec![4u8];
+        for slot in [2u64, 0, 0, 0] {
+            ops.extend_from_slice(&slot.to_le_bytes());
+        }
+        let elf = init_table_image(&ops);
+        let ctx = BinaryContext::new(&elf);
+        let with = RecordInfo::decode(
+            &ctx,
+            0x1000,
+            VmtFlavor::Delphi,
+            InitTableLayout::WithOperators,
+        )
+        .expect("an init table with operators");
+        assert_eq!(with.extent(), Some(0x1000..0x1000 + 26 + 1 + 4 * 8));
+        assert_eq!(
+            with.operators,
+            Some(RecordOperators {
+                flags: 2,
+                initialize: None,
+                finalize: None,
+                assign: None,
+            })
+        );
+        let without = RecordInfo::decode(
+            &ctx,
+            0x1000,
+            VmtFlavor::Delphi,
+            InitTableLayout::ManagedFields,
+        )
+        .expect("an init table without operators");
+        assert_eq!(without.extent(), Some(0x1000..0x1000 + 26));
+        assert_eq!(without.operators, None);
+    }
+
+    /// An empty operator section is one byte, and a count past the four slots
+    /// of the operator table is no init table of that layout.
+    #[test]
+    fn init_table_operator_section_is_bounded() {
+        let elf = init_table_image(&[0]);
+        let ctx = BinaryContext::new(&elf);
+        let empty = RecordInfo::decode(
+            &ctx,
+            0x1000,
+            VmtFlavor::Delphi,
+            InitTableLayout::WithOperators,
+        )
+        .expect("an init table with an empty section");
+        assert_eq!(empty.extent(), Some(0x1000..0x1000 + 27));
+        assert_eq!(empty.operators, None);
+        let elf = init_table_image(&[5, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let ctx = BinaryContext::new(&elf);
+        assert!(
+            RecordInfo::decode(
+                &ctx,
+                0x1000,
+                VmtFlavor::Delphi,
+                InitTableLayout::WithOperators
+            )
+            .is_none()
+        );
+    }
+
+    /// Only a Delphi or C++Builder compiler of version 35 or later selects
+    /// the operator section and an older one or Free Pascal does not; a
+    /// Delphi or C++Builder marker without a version, or no compiler, dates
+    /// nothing.
+    #[test]
+    fn init_table_layout_is_dated_by_the_compiler() {
+        let info = |compiler, version| CompilerInfo {
+            compiler,
+            version,
+            raw: "",
+            arch: TargetArch::Unknown,
+            os: TargetOs::Unknown,
+            source: DetectionSource::BuildString,
+        };
+        let layout =
+            |compiler, version| InitTableLayout::of_compiler(Some(&info(compiler, version)));
+        for (version, expected) in [
+            (Some("33.0"), Some(InitTableLayout::ManagedFields)),
+            (Some("34.0"), Some(InitTableLayout::ManagedFields)),
+            (Some("35.0"), Some(InitTableLayout::WithOperators)),
+            (Some("37.0"), Some(InitTableLayout::WithOperators)),
+            (None, None),
+        ] {
+            for compiler in [Compiler::Delphi, Compiler::CppBuilder] {
+                assert_eq!(layout(compiler, version), expected, "{version:?}");
+            }
+        }
+        for version in [Some("37.0"), None] {
+            assert_eq!(
+                layout(Compiler::FreePascal, version),
+                Some(InitTableLayout::ManagedFields)
+            );
+        }
+        assert_eq!(InitTableLayout::of_compiler(None), None);
+    }
+
+    /// The bytes of one init table: a Kind byte, the empty name, a record
+    /// size, one (type, offset) pair, then `ops`.
+    fn init_table_bytes(ops: &[u8]) -> Vec<u8> {
+        let mut table = vec![0x0e, 0];
+        table.extend_from_slice(&16u32.to_le_bytes()); // record size
+        table.extend_from_slice(&1u32.to_le_bytes()); // managed field count
+        table.extend_from_slice(&0u64.to_le_bytes()); // field type
+        table.extend_from_slice(&8u64.to_le_bytes()); // field offset
+        table.extend_from_slice(ops);
+        table
+    }
+
+    /// An undated image whose two init tables, at `0x1000` and right after
+    /// the first, each end with an empty operator section, then a sentinel
+    /// byte. Returns the image and the second table's address.
+    fn tables_with_operators() -> (Vec<u8>, u64) {
+        let first = init_table_bytes(&[0]);
+        let second = 0x1000 + first.len() as u64;
+        let mut payload = first;
+        payload.extend(init_table_bytes(&[0]));
+        payload.push(0xaa);
+        (elf_with_segment(&payload), second)
+    }
+
+    /// Tables that end with the operator section show it: each is abutted by
+    /// the next table or structure, and the last table, which nothing
+    /// follows, neither confirms nor refutes it. An address that is no record
+    /// is not counted.
+    #[test]
+    fn init_tables_with_operators_show_them() {
+        let (elf, second) = tables_with_operators();
+        let ctx = BinaryContext::new(&elf);
+        let end = second + 27;
+        let after = Range {
+            start: end,
+            end: end + 1,
+        };
+        let before = Range {
+            start: 0x800,
+            end: 0x900,
+        };
+        for stated in [vec![], vec![after], vec![before]] {
+            assert_eq!(
+                InitTableLayout::shown_by(&ctx, &[second, 0x1000], &stated),
+                InitTableLayout::WithOperators,
+                "{stated:x?}"
+            );
+        }
+        assert_eq!(
+            InitTableLayout::shown_by(&ctx, &[0x1000, second, end], &[]),
+            InitTableLayout::WithOperators
+        );
+    }
+
+    /// The test is all or nothing: one table the next structure does not
+    /// abut, or no table that anything follows, is the managed-fields layout.
+    #[test]
+    fn one_unabutted_init_table_refutes_the_operator_section() {
+        let (elf, second) = tables_with_operators();
+        let ctx = BinaryContext::new(&elf);
+        let end = second + 27;
+        assert_eq!(
+            InitTableLayout::shown_by(
+                &ctx,
+                &[0x1000, second],
+                &[Range {
+                    start: end + 1,
+                    end: end + 2,
+                }]
+            ),
+            InitTableLayout::ManagedFields
+        );
+        let before = Range {
+            start: 0x800,
+            end: 0x900,
+        };
+        for stated in [vec![], vec![before]] {
+            assert_eq!(
+                InitTableLayout::shown_by(&ctx, &[0x1000], &stated),
+                InitTableLayout::ManagedFields,
+                "{stated:x?}"
+            );
+        }
+    }
+
+    /// Tables of an earlier runtime, read with the operator section, take
+    /// `NumOps` from the next structure's first byte: the Kind byte of the
+    /// next table, which is no count, or a byte that is one and makes the
+    /// table end past the start of the structure it abuts.
+    #[test]
+    fn init_tables_without_operators_refute_them() {
+        let mut payload = init_table_bytes(&[]);
+        payload.extend(init_table_bytes(&[]));
+        payload.push(0xaa);
+        let elf = elf_with_segment(&payload);
+        let ctx = BinaryContext::new(&elf);
+        let second = 0x1000 + 26;
+        assert_eq!(
+            InitTableLayout::shown_by(
+                &ctx,
+                &[0x1000, second],
+                &[Range {
+                    start: second + 26,
+                    end: second + 27,
+                }]
+            ),
+            InitTableLayout::ManagedFields
+        );
+        let mut payload = init_table_bytes(&[]);
+        payload.extend_from_slice(&[0; 16]);
+        let elf = elf_with_segment(&payload);
+        let ctx = BinaryContext::new(&elf);
+        assert_eq!(
+            InitTableLayout::shown_by(
+                &ctx,
+                &[0x1000],
+                &[Range {
+                    start: 0x1000 + 26,
+                    end: 0x1000 + 42,
+                }]
+            ),
+            InitTableLayout::ManagedFields
+        );
     }
 
     #[test]

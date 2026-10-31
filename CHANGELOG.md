@@ -1,5 +1,200 @@
 # Changelog
 
+## 0.5.0
+
+Library recognition release. undelphi places an IDR knowledge base's
+routines in a binary and names the release that built a statically linked
+one, and the knowledge bases it builds for Delphi 2010 and later now record
+relocations as IDR's files do. Code entry points cover every method Delphi
+2010+ RTTI names, and `structure_extents` states each class's init table.
+A few API changes break compatibility; see **Changed**.
+
+### Added
+
+- **Placing knowledge-base routines in a binary.** `kb::locate::KbIndex`
+  holds what the search needs of one knowledge base, owned, so it is built
+  once and placed in any number of binaries (`KbIndex::locate`;
+  `kb::locate::locate` for one). A routine's pattern (its bytes with the
+  relocated ones masked) is placed where the code holds it exactly once,
+  the binary refers to the address, every relocation that names a routine
+  decodes to one of that name, and its unit is linked and laid out beside
+  it; each placed routine's relocations then place the routines they name.
+  `KbPlacement` carries the routine, its declaring unit
+  (`Module::declared_name`), how it was reached
+  (`Reached::{Scan, Reference}`) and whether routines of other names share
+  its bytes (`shared`). `References` / `identify_with` /
+  `KbIndex::locate_with` let several knowledge bases be placed in one
+  binary reading its image once. On the Delphi 6 fixtures with `kb6.bin`,
+  3 170 of `gtforms`' 3 572 code publics are named as the linker map
+  names them; on Delphi 13 Win32 / Win64 with knowledge bases built from
+  its units, 7 210 of 13 232 and 7 518 of 13 759 (the rest is the
+  program's own code and generic instances); no placement names a routine the map names
+  otherwise, except where the two routines are byte for byte the same
+  (`tests/kblocate.rs`).
+- **A placed routine's declaration.** `KbIndex::prototype` returns the
+  `KbPrototype` of the routine a `KbPlacement` places, owned: its kind,
+  calling convention, `overload` flag, result type and parameters (`KbParam`:
+  passing, DCU flags, location, name and type expression), `Self` and hidden
+  parameters included. Overloads the bytes tell apart keep their own
+  declarations: a Delphi 6 program's two `IntToStr` placements take
+  `System.Integer` and `System.Int64`.
+- **Code entry points for every method RTTI names.** `code_entrypoints`
+  labels a class's Delphi 2010+ extended-RTTI methods of every visibility
+  (`EntrypointKind::ExtendedMethod`, `Class.Method`; an `abstract` method,
+  whose entry is `System.@AbstractError`, is left out) and every record
+  type's methods, constructors and operators
+  (`EntrypointKind::RecordMethod`, `Record.Method`). Before, only published
+  methods were labelled, so a modern class's private, protected and public
+  methods went unnamed. A class's `automated` section is labelled too: its
+  methods as `EntrypointKind::AutomatedMethod`, its property accessors as
+  getters and setters.
+- **A method's declared prototype.** `MethodSignature::declared_params`
+  gives the parameters the source declares, without the compiler's hidden
+  ones and without Delphi's implicit `Self`, which (unlike FPC's) carries no
+  flag and is the first parameter of a method that has one
+  (`MethodSignature::has_self`). `DelphiBinary::type_at` decodes the type any
+  `PPTypeInfo` cell names, a parameter's, result's or record field's among
+  them, and `DelphiBinary::declaring_units` maps each RTTI type to the unit
+  that declares it (from the 2010+ type table), which a record's own RTTI
+  does not state. `rtti::RecordMethod::method_kind` and
+  `has_self` read a record method's kind and `Self` the same way, and
+  `rtti::SignatureParam::param_flags` its parameters' passing.
+  `ParamMode`, `DispatchKind` and `extrtti::Visibility` gain a
+  stable `as_str` label (`ParamMode::by_ref` says which modes pass by
+  reference).
+- **Attributes as source spells them.** `extrtti::DecodedAttribute` and
+  `AttributeArg` implement `Display`: `[TagAttribute('method', 3)]`, a
+  string quoted with `''` escaping, a set as `[1, 3]`, a class or type-info
+  reference by its type's name.
+- **How a type's value is held.** `rtti::TypeDetail::storage` reports the
+  machine shape of a scalar, string or reference type (`rtti::Storage`: an
+  integer of a width and signedness, `Boolean`, a character, a float, or a
+  pointer to characters, a class instance, an interface - managed, unlike a
+  class reference - or nothing a consumer can lay out),
+  with `Extended` 10 bytes on Win32 and a `Double` on Win64 and `Comp` /
+  `Currency` a signed 64-bit integer. A type described by its name or
+  declaration (a record, an array, a set, a typed pointer) has none.
+  `rtti::OrdinalType::width` gives an ordinal's width and signedness.
+- **Naming the unit initialization table.** `KbIndex::init_owners` names
+  each slot after the unit whose section routine is placed at its address
+  (`OwnerBasis::Placed`), or whose identical initialization or finalization
+  pattern matches right after the unit's placed code with nothing but
+  alignment fill between (`OwnerBasis::Adjacent`), one slot per unit. On
+  the fixtures 94 of the 96 slots it names are the linker map's; the two it
+  misnames are units with no code of their own, which share the previous
+  unit's bytes. `InitOwner::va` is the address that holds the owner's
+  routine: the slot's initialization address, or its finalization address
+  when the slot was named by that. `KbIndex::class_units` names the units
+  declaring a class.
+- **Which knowledge-base records hold code.** The Delphi 4 - 7 knowledge
+  bases file the compiler's unnamed blocks (`_NF__<index>`: string
+  literals, resource string and exception tables) as code unless a typed
+  constant refers to them, and the Borland C++ type descriptors of
+  `MidasLib` and the dbExpress drivers as code under the name `_DF_.`.
+  `Proc::holds_code` tells them apart: an unnamed block from Delphi 4 on
+  needs a call or jump relocation (`Dump::calls`), which the interface
+  method tables' thunks have, and a `_DF_.` record whose dump has the shape
+  of a descriptor (`Dump::is_type_descriptor`) is data. `KbIndex` places
+  only records that hold code, so no pointer table is named as a routine
+  (`SysUtils._NF__AD4` in a Delphi 6 program).
+- `kb::published_release` gives the release a knowledge base's file name
+  stands for (`kb6.bin`, `syskb2014.bin`, `syskb-37.0.bin`) and the
+  compiler version `dcc` reports for it, and `dcu::Version::of_compiler`
+  the release whose compiler reports a version.
+- **Release identification.** `kb::locate::identify` ranks `syskb`
+  knowledge bases for a binary by how many of their routines the scan
+  places, counting only those that place a routine of their `SysInit`
+  unit: the Delphi 6 and C++Builder 6 fixtures rank Delphi 6 first, the
+  Delphi 13 ones Delphi 13, and Free Pascal binaries none.
+- **Reading the notation back.** `kb::notation` reads the type
+  expressions, field and parameter types and method prototypes a knowledge
+  base stores as DCU32INT prints them into structure: `TypeExpr` (named,
+  pointer, array, range, enumeration, set, file, short string, float, class
+  reference, class, interface, procedural type), `Prototype` with
+  `RoutineKind`, `Signature`, `Param` and `Pass`. Generic instances read as
+  one qualified name from both the published files' spelling
+  (`TArray<System.TClass>System.TArray`1<System.TClass>`) and `build`'s
+  (`{System}TArray<System.TClass>`). Every type expression and prototype of
+  `kb6` reads to structure; of `kb2014`, all but IDR's anonymous `:n` type
+  references.
+- `Fixup::dcu_kind` gives the DCU relocation kind a knowledge-base fixup
+  letter records, and `dcu::locate::Encoding::of_kind` decodes a kind for a
+  release and platform, so DCUs and knowledge bases share one table.
+- `BinaryContext::code_ranges` gives the executable sections' address
+  ranges, the ones `BinaryContext::is_code_va` tests against.
+- **Init table extents.** `structure_extents` states each Delphi class's init
+  table (`StructureKind::InitTable`, `RecordInfo::init_table_extent`): the
+  `vmtInitTable` record's Kind byte, empty name, size, managed-field count
+  and one (type, offset) pair per field, measured from the stored count.
+  Delphi 11 (compiler 35.0) and later end the table with the operator
+  section every named record carries, `NumOps: Byte` and `RecOps[NumOps]`;
+  `InitTableLayout` states which a binary has (`DelphiBinary::init_table_layout`),
+  and the decode reads the section into `RecordInfo::operators`. A binary
+  whose compiler version is known is dated by it
+  (`InitTableLayout::of_compiler`): measured on 33.0 and 34.0 binaries (no
+  section) and on 35.0, 36.0 and 37.0 (the section follows every table), so
+  the next structure starts exactly at each table's end. A Delphi or
+  C++Builder binary no build string or RTL package dates (a stripped build
+  string, or the versionless `Embarcadero RAD Studio 37.0` marker of the RAD
+  Studio 13 command-line compiler) shows its layout by its own tables
+  (`InitTableLayout::shown_by`): the operator section is read only when,
+  read with it, every table decodes and every table that something follows
+  is abutted by the next structure, with at least one followed; otherwise
+  the tables end at their managed fields. On 1,514 Delphi binaries the
+  measurement agrees with the compiler version on all 1,445 dated ones, and
+  every init table of all 1,514 is followed by the next structure at its
+  stated end. The measurement costs undated binaries two extra decodes of
+  their init tables (one under each layout). Light Alloy's 124 tables
+  (3 640 bytes) lie among its routines, where a disassembler decoded them as
+  code. `RecordInfo::extent` gives any record decode's extent. Free Pascal's
+  init record is not measured.
+
+### Changed
+
+- **`initfini::UnitInitProc::unit_name` is an `Option`.** `None` where the
+  table names no unit (every Delphi table, an FPC build without
+  `FPC_INITFINAL_HASUNITNAME`) or the name is not UTF-8, where it was the
+  placeholder `"<unknown>"` / `"<non-ascii>"`, which `code_entrypoints`
+  wrote into labels as if it were a unit (`<unknown>.Initialization`). An
+  unnamed slot's entry points are labelled by position
+  (`unit[3].Initialization`).
+- **New variants on exhaustive enums.** `EntrypointKind::ExtendedMethod`,
+  `RecordMethod` and `AutomatedMethod`, `StructureKind::InitTable`, and
+  `TypeKind::Helper` and `TypeKind::File` (Free Pascal's `tkHelper` and
+  `tkFile`, which were `TypeKind::Unknown`). A `match` over these enums
+  needs the new arms.
+- **`RecordInfo::from_init_table` takes an `InitTableLayout`**, the section
+  a Delphi 11 or later init table ends with; `DelphiBinary::init_table`
+  passes its binary's.
+  `RecordInfo::from_va` reads an unnamed record to its managed fields only;
+  init tables go through `from_init_table`.
+
+### Fixed
+
+- `kb::build` names a module after the unit's own source file. It took the
+  first source the unit lists, which from 10 Seattle is an include file:
+  `System`'s routines were filed under a module `LocaleData`.
+- `kb::build` writes a Delphi 2010+ relocation as IDR does: the relative
+  kind `5` as `J` and every other kind as its digit (`'0' + kind`). It wrote
+  the kind's byte, which no published file holds. Built from the Seattle
+  units, `System` and `SysInit` now carry the fixup letters of the
+  published `syskb2014` on every routine whose code is the same (973 Win32,
+  981 Win64), save the block-end marker of the two units' initialization.
+- `TypeHeader::from_va` no longer returns a header of kind
+  `TypeKind::Unknown`, which its own documentation says is not a valid type
+  info. When a `jmp [reg*4 + table]` is followed by its jump table, the
+  table's address is the operand's address plus 4, so the self-cell pass of
+  `types()` took the operand for a type record's self-referencing cell and the
+  table's first entry (a code address, whose low byte is no Kind) for the
+  record. Light Alloy (Delphi 7) had two such records (`0x4201d4`,
+  `0x4afea8`), `Idr64.exe` two and the C++Builder 6 `deep.exe` one, each with
+  a one-character name, and `structure_extents` stated each as an RTTI record
+  inside a routine. No type of any sample is of kind `Unknown` now.
+  `TypeKind::Unknown` means only a Kind byte the flavor does not assign: FPC's
+  `tkHelper` and `tkFile`, which it used to absorb, are `TypeKind::Helper` and
+  `TypeKind::File`, decoded to their header (`TypeDetail::Other`) as the
+  other kinds without a detail decoder are.
+
 ## 0.4.0
 
 Capability release. undelphi now reads Delphi's compiled units (`.dcu`,

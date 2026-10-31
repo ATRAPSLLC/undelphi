@@ -65,11 +65,10 @@ const MAX_UNITS_PER_TABLE: usize = 4096;
 /// One unit's init / finalize procedures.
 #[derive(Debug, Clone)]
 pub struct UnitInitProc<'a> {
-    /// Unit name (e.g. `System.SysUtils`): UTF-8, as Delphi 2009 and later store names, or
-    /// `"<non-ascii>"` when the bytes are not valid UTF-8. `"<unknown>"`
-    /// when the FPC build didn't emit `FPC_INITFINAL_HASUNITNAME` or the
-    /// indirection couldn't be followed.
-    pub unit_name: &'a str,
+    /// Unit name (e.g. `System.SysUtils`), as the table states it. `None`
+    /// when the table carries no names (a Delphi table, or an FPC build
+    /// without `FPC_INITFINAL_HASUNITNAME`) or the name is not UTF-8.
+    pub unit_name: Option<&'a str>,
     /// Absolute VA of the unit's `initialization` procedure, or `None`
     /// when the unit declares no `initialization` block. Subtract the
     /// image base for an RVA.
@@ -183,9 +182,9 @@ fn walk_initfinal<'a>(
             // If it doesn't resolve, this entry is malformed - surface
             // the failure rather than emit an empty name.
             let name_bytes = read_short_string_at_va(ctx, name_ptr)?;
-            str::from_utf8(name_bytes).unwrap_or("<non-ascii>")
+            str::from_utf8(name_bytes).ok()
         } else {
-            "<unknown>"
+            None
         };
         out.push(UnitInitProc {
             unit_name,

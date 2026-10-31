@@ -194,6 +194,27 @@ pub enum ParamMode {
     Out,
 }
 
+impl ParamMode {
+    /// Stable label for persistence and display: the Pascal keyword, and
+    /// `value` for a by-value parameter.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ParamMode::Value => "value",
+            ParamMode::Var => "var",
+            ParamMode::Const => "const",
+            ParamMode::ConstRef => "constref",
+            ParamMode::Out => "out",
+        }
+    }
+
+    /// Whether the argument is passed by reference: `var`, `out` and
+    /// `constref`. A `const` parameter is by reference at the compiler's
+    /// discretion, which the RTTI does not record.
+    pub const fn by_ref(self) -> bool {
+        matches!(self, ParamMode::Var | ParamMode::Out | ParamMode::ConstRef)
+    }
+}
+
 /// Decoded `TParamFlag` set for one parameter.
 ///
 /// The Delphi flag set is one byte; FPC's is a two-byte set with extra
@@ -321,6 +342,18 @@ pub enum DispatchKind {
     Message,
 }
 
+impl DispatchKind {
+    /// Stable label for persistence and display.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DispatchKind::Static => "static",
+            DispatchKind::Virtual => "virtual",
+            DispatchKind::Dynamic => "dynamic",
+            DispatchKind::Message => "message",
+        }
+    }
+}
+
 /// The bits of `TVmtMethodExEntry.Flags` (`System.Rtti`: `mfClassMethod`,
 /// `mfHasSelf`, `mfSpecial`, the dispatch kind at bit 3, the visibility at
 /// bit 5, `mfAbstract`).
@@ -438,6 +471,30 @@ impl<'a> SignatureReport<'a> {
 }
 
 impl<'a> MethodSignature<'a> {
+    /// Whether the method has a `Self`: every method but a `class static`
+    /// one or a class operator, which an extended entry flags
+    /// ([`ExtendedMethodInfo::is_static`]). A published-table signature,
+    /// which carries no such entry, is an instance method's.
+    pub fn has_self(&self) -> bool {
+        self.extended.as_ref().is_none_or(|info| !info.is_static())
+    }
+
+    /// The parameters the source declares: without the ones the compiler
+    /// flags hidden ([`ParamFlags::is_hidden`]) and without Delphi's
+    /// implicit `Self`, the unflagged first parameter of a method that has
+    /// one ([`Self::has_self`]; FPC flags its `Self` hidden).
+    pub fn declared_params(&self) -> impl Iterator<Item = &MethodParam<'a>> + '_ {
+        let leading_self = self.has_self()
+            && self
+                .params
+                .first()
+                .is_some_and(|param| !param.flags.fpc && !param.flags.is_hidden());
+        self.params
+            .iter()
+            .skip(usize::from(leading_self))
+            .filter(|param| !param.flags.is_hidden())
+    }
+
     /// Decodes a Delphi published-method-table entry trailer.
     ///
     /// `trailer` is the byte range an entry's `Size` field reserves beyond

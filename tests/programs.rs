@@ -694,6 +694,25 @@ fn tables_vmt_tables() {
             ],
             "{b:?}"
         );
+        // The code entry points label the automated members.
+        let entries = bin.code_entrypoints();
+        let labelled = |kind: EntrypointKind, label: &str| {
+            entries
+                .iter()
+                .any(|e| e.kind == kind && e.name_hint == label)
+        };
+        assert!(
+            labelled(EntrypointKind::AutomatedMethod, "TAutoThing.Ping"),
+            "{b:?}"
+        );
+        assert!(
+            labelled(EntrypointKind::PropertyGetter, "TAutoThing.LevelGet"),
+            "{b:?}"
+        );
+        assert!(
+            labelled(EntrypointKind::PropertySetter, "TAutoThing.LevelSet"),
+            "{b:?}"
+        );
 
         // The Turbo Pascal `object` has a header-less VMT: not a class.
         assert!(bin.classes().find_by_name("TLegacy").is_none());

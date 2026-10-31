@@ -24,9 +24,10 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use undelphi::{
     DelphiBinary,
     classes::Class,
+    entrypoints::EntrypointKind,
     extents::StructureKind,
     extrtti::{AttributeArg, Visibility},
-    rtti::{RecordMethodKind, TypeDetail, TypeKind},
+    rtti::{Pointee, RecordMethodKind, Storage, TypeDetail, TypeKind},
     signatures::{DispatchKind, MethodKind, SignatureReport},
 };
 
@@ -355,6 +356,10 @@ fn methods_of_every_visibility_and_kind() {
                 .collect::<Vec<_>>(),
             vec![tag("method", 3)]
         );
+        assert_eq!(
+            bin.decode_attribute(&read.attributes[0]).to_string(),
+            "[TagAttribute('method', 3)]"
+        );
         let params: Vec<(Option<&str>, Option<&str>)> =
             read.params.iter().map(|p| (p.name, p.type_name)).collect();
         assert_eq!(
@@ -368,6 +373,11 @@ fn methods_of_every_visibility_and_kind() {
         );
         // A static class method has no Self.
         assert!(sigs[8].params.is_empty());
+        // The declared parameters leave the implicit Self out, and only it.
+        let declared: Vec<Option<&str>> = read.declared_params().map(|p| p.name).collect();
+        assert_eq!(declared, vec![Some("Count"), Some("Data")], "{platform}");
+        assert!(read.has_self() && !sigs[8].has_self(), "{platform}");
+        assert_eq!(sigs[8].declared_params().count(), 0, "{platform}");
     }
 }
 
@@ -433,6 +443,12 @@ fn records_with_methods_operators_and_attributes() {
             panic!("TPoint3 kind");
         };
         assert_eq!(point.record_size, 40);
+        // A record's RTTI names no unit; the 2010+ type table does.
+        assert_eq!(
+            bin.declaring_units().get(&point.header.va),
+            Some(&"modernrt"),
+            "{platform}"
+        );
         let fields: Vec<(String, u32, Visibility)> = point
             .fields
             .iter()
@@ -465,6 +481,24 @@ fn records_with_methods_operators_and_attributes() {
             .collect();
         let at = |n: &str| map[&format!("modernrt.TPoint3.{n}")];
         let names = |list: &[&str]| list.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+        // Each record method's kind as a signature names it, and its Self.
+        let kinds: Vec<(&str, MethodKind, bool)> = point
+            .methods
+            .iter()
+            .map(|m| (m.name(), m.method_kind(), m.has_self()))
+            .collect();
+        assert!(
+            kinds.contains(&("Create", MethodKind::Constructor, true)),
+            "{kinds:?}"
+        );
+        assert!(
+            kinds.contains(&("Length", MethodKind::Function, true)),
+            "{kinds:?}"
+        );
+        assert!(
+            kinds.contains(&("&op_Addition", MethodKind::OperatorOverload, false)),
+            "{kinds:?}"
+        );
         assert_eq!(
             methods,
             vec![
@@ -567,6 +601,111 @@ fn enums_sets_interfaces_and_method_references() {
             find_type(&bin, "TNotify").header().kind,
             TypeKind::Interface
         );
+    }
+}
+
+/// The storage of the RTL's scalar and string types, on both platforms:
+/// `Extended` is 10 bytes on Win32 and a `Double` on Win64, a class is a
+/// pointer to its instance, and a record has none (it is described by its
+/// declaration).
+#[test]
+fn types_report_their_storage() {
+    for (platform, ptr) in BUILDS {
+        let data = sample(platform, "modernbin.exe");
+        let bin = DelphiBinary::parse(&data).expect("parse");
+        let storage = |name: &str| find_type(&bin, name).storage(ptr);
+        assert_eq!(
+            storage("Integer"),
+            Some(Storage::Int {
+                bytes: 4,
+                signed: true
+            }),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("Cardinal"),
+            Some(Storage::Int {
+                bytes: 4,
+                signed: false
+            }),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("Int64"),
+            Some(Storage::Int {
+                bytes: 8,
+                signed: true
+            }),
+            "{platform}"
+        );
+        assert_eq!(storage("Boolean"), Some(Storage::Bool), "{platform}");
+        assert_eq!(
+            storage("Char"),
+            Some(Storage::Char { bytes: 2 }),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("string"),
+            Some(Storage::Pointer(Pointee::Chars { bytes: 2 })),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("Double"),
+            Some(Storage::Float { bytes: 8 }),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("TObject"),
+            Some(Storage::Pointer(Pointee::Instance)),
+            "{platform}"
+        );
+        assert_eq!(
+            storage("ISource"),
+            Some(Storage::Pointer(Pointee::Interface)),
+            "{platform}"
+        );
+        assert!(matches!(
+            find_type(&bin, "TLevel"),
+            TypeDetail::Enumeration(_)
+        ));
+        assert_eq!(
+            storage("TLevels"),
+            None,
+            "{platform}: a set is described by its declaration"
+        );
+    }
+}
+
+/// The code entry points name a class's non-published methods from its
+/// extended RTTI and a record's methods from the record's, at the addresses
+/// the linker map gives them; an abstract method is not labelled.
+#[test]
+fn entrypoints_name_extended_and_record_methods() {
+    for (platform, _) in BUILDS {
+        let data = sample(platform, "modernbin.exe");
+        let bin = DelphiBinary::parse(&data).expect("parse");
+        let map = map(platform);
+        let entries = bin.code_entrypoints();
+        let labelled = |kind: EntrypointKind, label: &str| {
+            entries
+                .iter()
+                .find(|e| e.kind == kind && e.name_hint == label)
+                .map(|e| e.va)
+        };
+        for name in ["GetItem", "SetItem", "DoChange", "Read", "Each"] {
+            assert_eq!(
+                labelled(EntrypointKind::ExtendedMethod, &format!("TWidget.{name}")),
+                Some(map[&format!("modernrt.TWidget.{name}")]),
+                "{platform} {name}"
+            );
+        }
+        for name in ["Create", "Length", "&op_Addition"] {
+            assert_eq!(
+                labelled(EntrypointKind::RecordMethod, &format!("TPoint3.{name}")),
+                Some(map[&format!("modernrt.TPoint3.{name}")]),
+                "{platform} {name}"
+            );
+        }
     }
 }
 
