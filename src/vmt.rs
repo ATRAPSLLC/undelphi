@@ -417,8 +417,9 @@ fn is_plausible_class_name(name: &[u8]) -> bool {
     if name.is_empty() || name.len() > MAX_CLASS_NAME_BYTES {
         return false;
     }
-    // Delphi / FPC class names are Pascal identifiers - possibly with
-    // generics / namespace punctuation. Anything else is prose.
+    // A Delphi / FPC class name is a Pascal identifier, qualified and
+    // generic punctuation and the alphabet the compiler names the types it
+    // synthesises in included - see `GENERIC_NAME_CHARS`.
     let Some(name) = as_identifier(name, &GENERIC_NAME_CHARS) else {
         return false;
     };
@@ -439,5 +440,23 @@ mod tests {
         assert!(!is_plausible_class_name(b""));
         assert!(!is_plausible_class_name(b"\x00hello"));
         assert!(!is_plausible_class_name(b"\x80name"));
+    }
+
+    /// The classes the compiler synthesises are named in its own alphabet:
+    /// an anonymous method's activation record, a type local to a routine
+    /// named in a generic argument, and FPC's generic instance named after
+    /// its argument count and a checksum. Each name is one a sample holds.
+    #[test]
+    fn compiler_made_class_names_are_plausible() {
+        for name in [
+            "@TList`1.Pack[1]$ActRec<Vcl.Controls.TControl>",
+            "TComponent.Create@$ActRec",
+            "TRttiPool.GetPackageList.DoUpdate$ActRec",
+            "TPropSet<System.TypInfo.GetDynArrayProp(System.TObject,System.TypInfo.PPropInfo).TDynamicArray>",
+            "TOpenAddressing$4$crc4770818E.TPairEnumerator",
+        ] {
+            assert!(is_plausible_class_name(name.as_bytes()), "{name}");
+        }
+        assert!(!is_plausible_class_name(b"ETSCAPE_PKEY\x00.\\crypto"));
     }
 }

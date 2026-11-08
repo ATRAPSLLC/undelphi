@@ -338,17 +338,8 @@ fn fpc_string_literals_are_not_in_the_code() {
 /// lies inside one.
 #[test]
 fn delphi_6_string_literals_match_the_source_and_the_map() {
-    let Some(data) = load("bcb6/tables.exe") else {
-        eprintln!("skipping: sample missing");
-        return;
-    };
-    let Some(map) = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/samples/bcb6/tables.map"),
-    )
-    .ok() else {
-        eprintln!("skipping: map missing");
-        return;
-    };
+    let data = committed("bcb6/tables.exe");
+    let map = committed_text("bcb6/tables.map");
     let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
     let literals: Vec<StructureExtent> = bin
         .structure_extents()
@@ -402,10 +393,7 @@ fn delphi_6_string_literals_match_the_source_and_the_map() {
 /// pointer each; both tables lie in the code section, and both are declared.
 #[test]
 fn delphi_6_automation_and_field_class_tables_are_declared() {
-    let Some(data) = load("bcb6/tables.exe") else {
-        eprintln!("skipping: sample missing");
-        return;
-    };
+    let data = committed("bcb6/tables.exe");
     let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
     let extents = bin.structure_extents();
     let class = |name: &str| {
@@ -495,6 +483,17 @@ fn delphi_6_runtime_records_are_declared() {
 /// Reads a committed sample, failing when it is absent.
 fn committed(rel: &str) -> Vec<u8> {
     load(rel).unwrap_or_else(|| panic!("committed sample {rel} is missing"))
+}
+
+/// Reads a committed text sample under `tests/samples` - a linker map - and
+/// panics when it is missing.
+fn committed_text(rel: &str) -> String {
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/samples")
+            .join(rel),
+    )
+    .unwrap_or_else(|e| panic!("committed sample {rel} is missing: {e}"))
 }
 
 /// A `jmp [reg*4 + table]` whose jump table follows it puts the table's
@@ -827,8 +826,10 @@ fn undated_init_tables_show_their_layout() {
 
 /// The RAD Studio 13 command-line compiler carries only the product marker
 /// `Embarcadero RAD Studio 37.0`, which dates nothing, and imports no RTL
-/// package; its 65 init tables show the operator section. Read from the
-/// install `UNDELPHI_D13` names.
+/// package; its 85 init tables show the operator section, 20 of them the
+/// activation records of anonymous methods that capture a managed value
+/// (``@TList`1.Pack[0]$ActRec<System.TObject>`` holds its comparer). Read from
+/// the install `UNDELPHI_D13` names.
 #[test]
 fn undated_delphi_13_compiler_reads_the_operator_section() {
     let Some(root) = env::var_os("UNDELPHI_D13") else {
@@ -840,7 +841,7 @@ fn undated_delphi_13_compiler_reads_the_operator_section() {
         eprintln!("skipping: {} missing", path.display());
         return;
     };
-    assert_eq!(check_undated_with_operators(&data, "dcc32.EXE"), 65);
+    assert_eq!(check_undated_with_operators(&data, "dcc32.EXE"), 85);
 }
 
 /// Light Alloy's 124 init tables hold 3,640 bytes between them, in the code
@@ -852,4 +853,72 @@ fn delphi_7_init_tables_are_declared() {
         return;
     };
     assert_eq!(check_init_tables(&data, "lightalloy/LA.exe", false), 124);
+}
+
+/// **An anonymous method's activation record is a class like any other.**
+/// Delphi compiles each anonymous method into a class it names in its own
+/// alphabet (``@TList`1.Pack[1]$ActRec<Vcl.Controls.TControl>``,
+/// `TCustomCheckBox.ObserverAdded$ActRec`) and places its VMT, interface
+/// table, interface vtable and the adjustor thunks among the code. Each of
+/// the 85 activation records `gtforms.map` names (`Unit..Name$ActRec`, at
+/// its VMT) is a class of that name whose VMT header and interface table
+/// are declared, on Win32 and Win64 alike.
+#[test]
+fn delphi_13_activation_records_are_declared() {
+    for platform in ["win32", "win64"] {
+        let data = committed(&format!("d13/{platform}/gtforms.exe"));
+        let map = committed_text(&format!("d13/{platform}/gtforms.map"));
+        let bin = DelphiBinary::parse(&data).expect("a Delphi binary");
+        let extents = bin.structure_extents();
+        let declared = |kind: StructureKind, va: u64| {
+            extents
+                .iter()
+                .any(|structure| structure.kind == kind && structure.extent.contains(&va))
+        };
+        let code = bin.ctx().sections().text.expect("a code section").va;
+        let records: Vec<(u64, &str)> = map
+            .lines()
+            .skip_while(|line| !line.contains("Publics by Name"))
+            .filter_map(|line| {
+                let line = line.trim_start().strip_prefix("0001:")?;
+                let (offset, name) = line.split_at_checked(8)?;
+                let (_, ty) = name.trim().split_once("..")?;
+                // A Win64 map names a class that implements an interface
+                // twice: `Unit...Name` in the interface data laid out before
+                // the VMT, `Unit..Name` at the VMT itself.
+                (!ty.starts_with('.')).then_some(())?;
+                let generic = ty
+                    .rfind("$ActRec<")
+                    .is_some_and(|at| !ty[at..].contains(">."));
+                (ty.ends_with("$ActRec") || generic).then_some(())?;
+                Some((code + u64::from_str_radix(offset, 16).ok()?, ty))
+            })
+            .collect();
+        assert_eq!(records.len(), 85, "{platform}: activation records");
+        for (va, ty) in records {
+            let class = bin
+                .classes()
+                .iter()
+                .find(|class| class.vmt_va() == va)
+                .unwrap_or_else(|| panic!("{platform}: {ty} at {va:#x}: no class"));
+            assert!(
+                ty.ends_with(class.name()),
+                "{platform}: {ty} at {va:#x} is {}",
+                class.name()
+            );
+            assert!(
+                declared(StructureKind::VmtHeader, va),
+                "{platform}: {ty}: header"
+            );
+            let table = class.vmt.intf_table;
+            assert!(
+                table != 0,
+                "{platform}: {ty}: an activation record implements its method"
+            );
+            assert!(
+                declared(StructureKind::InterfaceTable, table),
+                "{platform}: {ty}: table"
+            );
+        }
+    }
 }
