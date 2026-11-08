@@ -239,7 +239,7 @@ records match kb6's wherever the input units are the same.
 
 ## Performance
 
-On a 25 MB Delphi 12 Athens PE (`heidisql.exe` - 2 661 classes, 42 form
+On a 25 MB Delphi 12 Athens PE (`heidisql.exe` - 2 869 classes, 42 form
 resources, hundreds of thousands of VA dereferences), full parse +
 `forms()` + every `xref::*` view runs in ~100 ms in release mode on a
 contemporary laptop.

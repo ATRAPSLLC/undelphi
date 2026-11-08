@@ -65,10 +65,27 @@ pub fn read_short_string_at_file(data: &[u8], off: usize) -> Option<&[u8]> {
     data.get(body_start..body_end)
 }
 
-/// Punctuation a qualified or generic type name may carry beyond identifier
-/// characters (`System.Generics.Collections.TList<System.Integer>`,
-/// compiler-made `@` names).
-pub const GENERIC_NAME_CHARS: [char; 8] = ['.', '<', '>', ',', ':', '&', '@', ' '];
+/// Punctuation a qualified, generic or compiler-made type name may carry
+/// beyond identifier characters.
+///
+/// A source-declared name carries `.`, `<`, `>` and `,`
+/// (`System.Generics.Collections.TList<System.Integer>`), `:` and `&`. The
+/// names the compiler makes for the types it synthesises carry the rest:
+/// an anonymous method's activation record is a class named
+/// ``@TList`1.Pack[1]$ActRec<Vcl.Controls.TControl>`` or
+/// `TComponent.Create@$ActRec` (`@` for a generic or overloaded owner, the
+/// backtick before a generic's arity, brackets around an overload's index,
+/// `$` before the synthesised part), its interface type
+/// ``.TList`1.Pack[0]$0$Intf<...>``, and a type local to a routine names the
+/// routine's parameter list in a generic argument
+/// (`TPropSet<System.TypInfo.GetDynArrayProp(System.TObject,System.TypInfo.PPropInfo).TDynamicArray>`).
+/// FPC uses `$` too, naming a generic instance after its argument count and
+/// a checksum (`TOpenAddressing$4$crc4770818E.TPairEnumerator`).
+/// A class whose name fails this alphabet is dropped whole, with its
+/// tables, its interface thunks and the methods they lead to.
+pub const GENERIC_NAME_CHARS: [char; 14] = [
+    '.', '<', '>', ',', ':', '&', '@', ' ', '$', '`', '[', ']', '(', ')',
+];
 
 /// Returns `name` as `&str` when it is a plausible identifier: non-empty
 /// UTF-8 (Delphi 2009 and later store identifiers as UTF-8) whose

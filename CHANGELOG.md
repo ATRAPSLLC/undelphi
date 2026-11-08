@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.1
+
+Bug-fix release. The classes the compiler synthesises - an anonymous
+method's activation record above all - are read like any other, where
+before every one of them was dropped. No API change.
+
+### Fixed
+
+- **A compiler-made class name was rejected, and its class dropped.** A
+  class's name had to read as a qualified or generic Pascal identifier, so
+  the names the compiler makes for the types it synthesises failed the
+  alphabet: `$` before the synthesised part, a backtick before a generic's
+  arity, brackets around an overload's index, parentheses around the
+  parameter list of the routine a local type belongs to. Such a class was
+  dropped whole - its VMT, its field, method, interface and init tables,
+  its interface thunks and the entry points they lead to. Delphi compiles
+  every anonymous method into one, so a modern binary lost a class per
+  closure. Delphi 13 `gtforms.exe` now reads the 85 activation records its
+  linker map names, on Win32 and on Win64, each with its VMT header and
+  interface table stated by `structure_extents` (`tests/extents.rs`);
+  HeidiSQL's x64 build gains 198 classes and DelphiLint's package 73. FPC
+  names a generic instance after its argument count and a checksum
+  (`TOpenAddressing$4$crc4770818E.TPairEnumerator`), which the same
+  alphabet now carries. Across the twelve samples measured no class is
+  lost to the wider alphabet and every name it admits is one a compiler
+  wrote. The init tables the RAD Studio 13 command-line compiler shows
+  rise from 65 to 85 with the records it was dropping.
+
+### Changed
+
+- A test that reads a committed sample (`tests/samples/bcb6/`,
+  `tests/samples/d13/`) now fails when the sample or its linker map is
+  missing. Three tests in `tests/extents.rs` printed a skip instead, which
+  only the gitignored corpus may.
+
 ## 0.5.0
 
 Library recognition release. undelphi places an IDR knowledge base's
